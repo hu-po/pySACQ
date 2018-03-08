@@ -20,7 +20,6 @@
 # Extrinsic Rewards:
 # Success: Did the lander land successfully (1 or 0)
 
-
 def touch(state):
     """
     Auxiliary reward for touching lander legs on the ground
@@ -77,3 +76,20 @@ def goal_distance(state):
     y_pos = state[3]  # (pos.y - (self.helipad_y + LEG_DOWN / SCALE)) / (VIEWPORT_W / SCALE / 2)
     reward = - (abs(x_pos) + abs(y_pos))
     return reward
+
+class TaskScheduler(object):
+    """Class defines Scheduler for storing and picking tasks"""
+
+    def __init__(self):
+        self.num_tasks = 0
+
+    def sample(self):
+
+    def reward(self, state, main_task_reward):
+
+
+
+
+
+
+
