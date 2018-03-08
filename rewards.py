@@ -20,6 +20,7 @@
 # Extrinsic Rewards:
 # Success: Did the lander land successfully (1 or 0)
 
+
 def touch(state):
     """
     Auxiliary reward for touching lander legs on the ground
