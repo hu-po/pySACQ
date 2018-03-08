@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 from collections import namedtuple
+import random
 import gym
 import torch
 import numpy as np
@@ -13,10 +14,10 @@ from networks import Actor, Critic
 from tasks import TaskScheduler
 
 # Named tuple for a single step within a trajectory
-Step = namedtuple('Step', ['state', 'action', 'reward', 'policy'])
+Step = namedtuple('Step', ['state', 'action', 'reward', 'task_idx', 'actor', 'critic'])
 
 
-def cumulative_main_task_reward(trajectory, task_period, gamma=0.95):
+def cumulative_main_task_reward(trajectory, task_idx, task_period, gamma=0.95):
     """
     Follows Equation 6 in [1]
     :return:
@@ -35,6 +36,18 @@ def cumulative_main_task_reward(trajectory, task_period, gamma=0.95):
             total_reward += (gamma ** t) * main_task_reward
     return total_reward
 
+def actor_loss(trajectory, actor, critic, entropy_reg_param):
+    """
+    Follows Equation 9 in [1]
+    :return:
+    """
+    loss = 0
+    for step in trajectory:
+        task_q = critic.forward(step.state, step.task_idx)
+        task_policy = actor.forward(step.state, step.task_idx)
+        loss += task_q + entropy_reg_param * torch.log(task_policy)
+    return loss
+
 
 def act(num_trajectories=100, task_period=30):
     """
@@ -45,12 +58,86 @@ def act(num_trajectories=100, task_period=30):
     :return:
     """
 
+    for trajectory_idx in range(num_trajectories):
+
+        # Reset environment and trajectory specific parameters
+        trajectory = []  # collection of state, action, task pairs
+        task_idx = 0  # h in paper
+        obs = env.reset()
+        done = False
+        num_steps = 0
+
+        # Roll out
+        while not done:
+
+            if num_steps % task_period == 0:
+                task.sample()  # Sample a new task using the scheduler
+                task_idx = task_idx + 1
+
+            # Get the action from current actor policy
+            action = actor.forward(obs, task_idx)
+
+            # Execute action and collect rewards for each task
+            new_obs, gym_reward, done, _ = env.step(action)
+
+            # reward is a vector of the reward for each task
+            reward = task.reward(new_obs, gym_reward)
+
+            # group information into a step and add to current trajectory
+            new_step = Step(obs, action, reward, task_idx, actor, critic)
+            trajectory.append(new_step)
+
+            num_steps += 1  # increment step counter
+
+        # send trajectory and schedule decisions (tasks) to learner
+
+        for _ in range(task.num_tasks):
+            M = M + 1  # increment monte carlo counter
+
+            # Calculate cumulative discounted rewards
+
+            # Update q-table using monte carlo rewards
+
+
+# Pseudo-code follows Algorithm 2 in [1]
+def learn(num_learning_iterations,
+          learning_rate=0.001):
+
+    for i in range(num_learning_iterations):
+
+        for k in range(1000):
+            # Sample a random trajectory from the replay buffer
+            trajectory = random.choice(B)
+
+            for task in trajectory_tasks:
+
+                # Use actor and critic from that specific trajectory
+
+                # optimizers for critic and actor
+                actor_opt = torch.optim.RMSprop(actor.parameters(), learning_rate)
+                critic_opt = torch.optim.RMSprop(critic.parameters(), learning_rate)
+                actor_opt.zero_grad()
+                critic_opt.zero_grad()
+
+                # compute gradient for critic
+
+                # compute gradient for actor
+
+                # train networks
+                actor_opt.step()
+                critic_opt.step()
+
+if __name__ == 'main()':
+
     # Initialize Q table as a dataframe
     q_table_columns = ['state', 'action', 'reward', 'task_id', 'policy']
     Q = pd.DataFrame(columns=q_table_columns)
 
-    # Monte carlo simulated trajectories
+    # Monte carlo counter for simulated trajectories
     M = 0
+
+    # Replay buffer stores collected trajectories
+    B = []
 
     # actor and critic policies are defined in networks.py
     actor = Actor(state_dim=8,
@@ -83,58 +170,3 @@ def act(num_trajectories=100, task_period=30):
 
     # task scheduler is defined in tasks.py
     task = TaskScheduler()
-
-    for trajectory_idx in range(num_trajectories):
-
-        # Reset environment and trajectory specific parameters
-        trajectory = []  # collection of state, action, task pairs
-        task_idx = 0  # h in paper
-        obs = env.reset()
-        done = False
-        num_steps = 0
-
-        # Roll out
-        while not done:
-
-            if num_steps % task_period == 0:
-                task.sample()  # Sample a new task using the scheduler
-                task_idx = task_idx + 1
-
-            # Get the action from current actor policy
-            action = actor.forward(obs, task_idx)
-
-            # Execute action and collect rewards for each task
-            new_obs, gym_reward, done, _ = env.step(action)
-
-            # reward is a vector of the reward for each task
-            reward = task.reward(new_obs, gym_reward)
-
-            # group information into a step and add to current trajectory
-            new_step = Step(obs, action, reward, task_idx, actor)
-            trajectory.append(new_step)
-
-            num_steps += 1  # increment step counter
-
-        # send trajectory and schedule decisions (tasks) to learner
-
-        for _ in range(task.num_tasks):
-            M = M + 1  # increment monte carlo counter
-
-            # Calculate cumulative discounted rewards
-
-            # Update q-table using monte carlo rewards
-
-
-# Pseudo-code follows Algorithm 2 in [1]
-def learn(num_learning_iterations, entropy_reg_param,
-          initial_weights_actor, initial_weights_critic):
-    for i in range(num_learning_iterations):
-
-        # Update replay buffer with received trajectories
-
-        for k in range(1000):
-            trajectory = sample(replay_buffer)
-
-            # compute gradients for actor and critic
-
-            # train networks
