@@ -1,5 +1,5 @@
 import torch
-
+import numpy as np
 
 class IntentionNet(torch.nn.Module):
     """Generic class for a single intention head (used within actor/critic networks)"""
@@ -135,6 +135,12 @@ class Actor(BaseNet):
         dist = torch.distributions.Normal(mean, std)
         action = dist.sample()
         return action
+
+    def predict(self, x, intention, to_numpy=True):
+        y = super().predict(x, intention, to_numpy)
+        # Make sure action values are between -1 and 1
+        np.clip(y, -1.0, 1.0, out=y)
+        return y
 
 
 class Critic(BaseNet):

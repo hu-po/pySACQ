@@ -2,8 +2,10 @@ from pathlib import Path
 import sys
 from collections import namedtuple
 import random
+import time
 import gym
 import torch
+import numpy as np
 
 # Add local files to path
 ROOT_DIR = Path.cwd()
@@ -35,7 +37,7 @@ def cumulative_main_task_reward(trajectory, task_idx, task_period, gamma=0.95):
     return total_reward
 
 
-def act(num_trajectories=100, task_period=30):
+def act(num_trajectories=10, task_period=30):
     """
     Performs actions in the environment collecting reward/experience.
     This follows Algorithm 3 in [1]
@@ -45,7 +47,7 @@ def act(num_trajectories=100, task_period=30):
     """
 
     for trajectory_idx in range(num_trajectories):
-
+        print('Acting: trajectory %s of %s' % (trajectory_idx + 1, num_trajectories))
         # Reset environment and trajectory specific parameters
         trajectory = []  # collection of state, action, task pairs
         task.reset()  # h in paper
@@ -61,7 +63,7 @@ def act(num_trajectories=100, task_period=30):
                 task.sample()
 
             # Get the action from current actor policy
-            action = actor.forward(obs, task.current_task)
+            action = actor.predict(obs, task.current_task)
 
             # Execute action and collect rewards for each task
             new_obs, gym_reward, done, _ = env.step(action)
@@ -79,7 +81,7 @@ def act(num_trajectories=100, task_period=30):
         B.append(trajectory)
 
 
-def learn(num_learning_iterations=100, lr=0.0002, erp=0.0001):
+def learn(num_learning_iterations=10, lr=0.0002, erp=0.0001):
     """
     Pushes back gradients from the replay buffer, updating the actor and critic.
     This follows Algorithm 2 in [1]
@@ -88,7 +90,8 @@ def learn(num_learning_iterations=100, lr=0.0002, erp=0.0001):
     :param erp: (float) Entropy regularization parameter
     :return: None
     """
-    for i in range(num_learning_iterations):
+    for learn_idx in range(num_learning_iterations):
+        print('Learning: trajectory %s of %s' % (learn_idx + 1, num_learning_iterations))
 
         # Sample a random trajectory from the replay buffer
         trajectory = random.choice(B)
@@ -103,7 +106,9 @@ def learn(num_learning_iterations=100, lr=0.0002, erp=0.0001):
         critic_opt.zero_grad()
 
         for step in trajectory:
-            task_critic = step.critic.forward(step.state, step.task_idx)
+            # Input to critic is state and action combined
+            critic_input = np.concatenate((step.state, step.action), axis=0)
+            task_critic = step.critic.forward(critic_input, step.task_idx)
             task_actor = step.actor.forward(step.state, step.task_idx)
             # Actor loss follows Equation 9 in [1]
             actor_loss += task_critic + erp * torch.log(task_actor)
@@ -119,7 +124,39 @@ def learn(num_learning_iterations=100, lr=0.0002, erp=0.0001):
         critic_opt.step()
 
 
-if __name__ == 'main()':
+def run(min_rate=None):
+    """
+    Runs the actor policy on the environment, rendering it. This does not store anything
+    and is only used for visualization.
+    :param min_rate: (float) minimum framerate
+    :return: None
+    """
+    obs = env.reset()
+    done = False
+    # Counter variables for number of steps and total episode time
+    epoch_tic = time.clock()
+    num_steps = 0
+    while not done:
+        step_tic = time.clock()
+        env.render()
+        # Use the previous observation to get an action from policy
+        action = actor.predict(obs, -1)  # Last intention is main task
+        # Step the environment and push outputs to policy
+        obs, reward, done, _ = env.step(action)
+        step_toc = time.clock()
+        step_time = step_toc - step_tic
+        if min_rate and step_time < min_rate:  # Sleep to ensure minimum rate
+            time.sleep(min_rate - step_time)
+        num_steps += 1
+    # Total elapsed time in epoch
+    epoch_toc = time.clock()
+    epoch_time = epoch_toc - epoch_tic
+    print('Episode complete (%s steps in %.2fsec), final reward %s ' % (num_steps,
+                                                                        epoch_time,
+                                                                        reward))
+
+
+if __name__ == '__main__':
     # # Initialize Q table as a dataframe
     # q_table_columns = ['state', 'action', 'reward', 'task_id', 'policy']
     # Q = pd.DataFrame(columns=q_table_columns)
@@ -136,3 +173,7 @@ if __name__ == 'main()':
 
     # task scheduler is defined in tasks.py
     task = TaskScheduler()
+
+    act()
+    learn()
+    run(min_rate=0.01)
