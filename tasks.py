@@ -1,3 +1,5 @@
+import random
+
 # Observation space, according to source:
 # state = [
 #     (pos.x - VIEWPORT_W / SCALE / 2) / (VIEWPORT_W / SCALE / 2),
@@ -77,19 +79,31 @@ def goal_distance(state):
     reward = - (abs(x_pos) + abs(y_pos))
     return reward
 
+
 class TaskScheduler(object):
     """Class defines Scheduler for storing and picking tasks"""
 
     def __init__(self):
-        self.num_tasks = 0
+        self.task_rewards = [touch,
+                             hover_planar,
+                             hover_angular,
+                             upright,
+                             goal_distance]
+        self.num_tasks = len(self.task_rewards)
+
+        # Internal tracking variable for current task, and set of tasks
+        self.current_task = 0
+        self.current_set = set()
+
+    def reset(self):
+        self.current_set = set()
 
     def sample(self):
+        self.current_task = random.randint(0, self.num_tasks)
+        self.current_set.add(self.current_task)
 
-    def reward(self, state, main_task_reward):
-
-
-
-
-
-
-
+    def reward(self, state):
+        reward_vector = []
+        for task_reward in self.task_rewards:
+            reward_vector.append(task_reward(state))
+        return reward_vector
