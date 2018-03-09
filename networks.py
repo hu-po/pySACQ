@@ -11,20 +11,31 @@ class IntentionNet(torch.nn.Module):
 
         # Build the network
         self.layer1 = torch.nn.Linear(input_size, hidden_size)
-        self.layer2 = torch.nn.Linear(hidden_size, output_size)
-
-        # Initialize the weights
         self.init_weights()
 
     def init_weights(self):
         # Initialize the other layers with xavier (still constant 0 bias)
         torch.nn.init.xavier_uniform(self.layer1.weight.data)
         torch.nn.init.constant(self.layer1.bias.data, 0)
+
+    def forward(self, x):
+        x = self.non_linear(self.layer1(x))
+        return x
+
+
+class IntentionCritic(IntentionNet):
+    """Class for a single Intention head within the Q-function (or critic) network"""
+
+    def __init__(self, input_size, hidden_size, output_size, non_linear, use_gpu=True):
+        super(IntentionCritic, self).__init__(input_size, hidden_size, output_size, non_linear, use_gpu)
+
+        # Critic specific final layer
+        self.layer2 = torch.nn.Linear(hidden_size, output_size)
         torch.nn.init.xavier_uniform(self.layer2.weight.data)
         torch.nn.init.constant(self.layer2.bias.data, 0)
 
     def forward(self, x):
-        x = self.non_linear(self.layer1(x))
+        x = super().forward(x)
         x = self.non_linear(self.layer2(x))
         return x
 
@@ -35,21 +46,17 @@ class IntentionActor(IntentionNet):
     def __init__(self, input_size, hidden_size, output_size, non_linear, use_gpu=True):
         super(IntentionActor, self).__init__(input_size, hidden_size, output_size, non_linear, use_gpu)
 
+        # Actor specific final layers (separate layers for mean and std)
         self.mean_activation_func = torch.nn.Tanh()
-
-        # Separate layers for mean and std
         self.mean_layer = torch.nn.Linear(hidden_size, output_size)
         self.std_layer = torch.nn.Linear(hidden_size, output_size)
-
-    def init_weights(self):
-        # Initialize layers with xavier and constant 0 bias
         torch.nn.init.xavier_uniform(self.mean_layer.weight.data)
         torch.nn.init.constant(self.mean_layer.bias.data, 0)
         torch.nn.init.xavier_uniform(self.std_layer.weight.data)
         torch.nn.init.constant(self.std_layer.bias.data, 0)
 
     def forward(self, x):
-        x = self.non_linear(self.layer1(x))
+        x = super().forward(x)
         # TODO: This isn't exactly what is in paper, check this
         mean = self.mean_activation_func(self.mean_layer(x))
         std = self.non_linear(self.std_layer(x))
@@ -65,12 +72,10 @@ class BaseNet(torch.nn.Module):
         self.use_gpu = use_gpu
 
         # Build the base of the network
-        self.layer_1 = torch.nn.Linear(state_dim, base_hidden_size)
-        self.layer_2 = torch.nn.Linear(base_hidden_size, head_input_size)
+        self.layer1 = torch.nn.Linear(state_dim, base_hidden_size)
+        self.layer2 = torch.nn.Linear(base_hidden_size, head_input_size)
         if self.batch_norm:
             self.bn1 = torch.nn.BatchNorm1d(base_hidden_size)
-
-        # Initialize the weights
         self.init_weights()
 
     def init_weights(self):
@@ -81,6 +86,7 @@ class BaseNet(torch.nn.Module):
         torch.nn.init.constant(self.layer2.bias.data, 0)
 
     def forward_base(self, x):
+        x = torch.autograd.Variable(torch.Tensor(x))
         x = self.non_linear(self.layer1(x))
         if self.batch_norm:
             x = self.bn1(x)
@@ -105,7 +111,7 @@ class Actor(BaseNet):
                  head_hidden_size=8,
                  head_output_size=2,
                  non_linear=torch.nn.ELU(),
-                 batch_norm=True,
+                 batch_norm=False,
                  use_gpu=True):
         super(Actor, self).__init__(state_dim, base_hidden_size, head_input_size, non_linear, batch_norm, use_gpu)
 
@@ -142,7 +148,7 @@ class Critic(BaseNet):
                  head_hidden_size=32,
                  head_output_size=1,
                  non_linear=torch.nn.ELU(),
-                 batch_norm=True,
+                 batch_norm=False,
                  use_gpu=True):
         super(Critic, self).__init__(state_dim, base_hidden_size, head_input_size, non_linear, batch_norm, use_gpu)
 
@@ -166,7 +172,6 @@ class Critic(BaseNet):
 
 
 if __name__ == '__main__':
-
     print('Run this file directly to debug')
 
     actor = Actor()
@@ -175,10 +180,13 @@ if __name__ == '__main__':
     # Carry out a step on the environment to test out forward functions
     import gym
     import random
+
     env = gym.make('LunarLanderContinuous-v2')
     obs = env.reset()
-    task_idx = random.randint(1, 6)
+    task_idx = random.randint(0, 5)
 
     # Get the action from current actor policy
-    action = actor.forward(obs, task_idx)
+    action = actor.predict(obs, task_idx)
     _, _, _, _ = env.step(action)
+
+    print('Got to end sucessfully! (Though this only means there are no major bugs..)')
