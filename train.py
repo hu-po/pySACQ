@@ -45,10 +45,6 @@ def run(actor, env, min_rate=None):
 
 
 if __name__ == '__main__':
-    # # Initialize Q table as a dataframe
-    # q_table_columns = ['state', 'action', 'reward', 'task_id', 'policy']
-    # Q = pd.DataFrame(columns=q_table_columns)
-
     # Replay buffer stores collected trajectories
     B = []
 
@@ -63,5 +59,5 @@ if __name__ == '__main__':
     task = TaskScheduler()
 
     act(actor, critic, env, task, B, num_trajectories=10, task_period=30)
-    learn(actor, critic, task, B, num_learning_iterations=10, lr=0.0002, erp=0.0001)
+    learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size=10, lr=0.0002)
     run(min_rate=0.01)
