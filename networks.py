@@ -28,9 +28,6 @@ class IntentionNet(torch.nn.Module):
         x = self.non_linear(self.layer2(x))
         return x
 
-    def predict(self, x):
-        raise NotImplementedError('Intention Net does not have a generic predict function')
-
 
 class IntentionActor(IntentionNet):
     """Class for a single Intention head within the policy (or actor) network"""
@@ -38,15 +35,25 @@ class IntentionActor(IntentionNet):
     def __init__(self, input_size, hidden_size, output_size, non_linear, use_gpu=True):
         super(IntentionActor, self).__init__(input_size, hidden_size, output_size, non_linear, use_gpu)
 
-    def forward(self, x):
-        x = super().forward(x)
-        # Feed through tanh and scale
-        x = torch.nn.Tanh()(x)
-        x = scale * x  # TODO: Figure out proper scaling from paper
-        return x
+        self.mean_activation_func = torch.nn.Tanh()
 
-    def predict(self, x):
-        pass
+        # Separate layers for mean and std
+        self.mean_layer = torch.nn.Linear(hidden_size, output_size)
+        self.std_layer = torch.nn.Linear(hidden_size, output_size)
+
+    def init_weights(self):
+        # Initialize layers with xavier and constant 0 bias
+        torch.nn.init.xavier_uniform(self.mean_layer.weight.data)
+        torch.nn.init.constant(self.mean_layer.bias.data, 0)
+        torch.nn.init.xavier_uniform(self.std_layer.weight.data)
+        torch.nn.init.constant(self.std_layer.bias.data, 0)
+
+    def forward(self, x):
+        x = self.non_linear(self.layer1(x))
+        # TODO: This isn't exactly what is in paper, check this
+        mean = self.mean_activation_func(self.mean_layer(x))
+        std = self.non_linear(self.std_layer(x))
+        return mean, std
 
 
 class BaseNet(torch.nn.Module):
@@ -80,17 +87,23 @@ class BaseNet(torch.nn.Module):
         x = self.non_linear(self.layer2(x))
         return x
 
+    def predict(self, x, intention, to_numpy=True):
+        y = self.forward(x, intention)
+        if to_numpy:
+            y = y.cpu().data.numpy()
+        return y
+
 
 class Actor(BaseNet):
     """Class for policy (or actor) network"""
 
     def __init__(self,
-                 num_intentions=1,
+                 num_intentions=6,
                  state_dim=8,
                  base_hidden_size=32,
                  head_input_size=16,
                  head_hidden_size=8,
-                 head_output_size=4,
+                 head_output_size=2,
                  non_linear=torch.nn.ELU(),
                  batch_norm=True,
                  use_gpu=True):
@@ -102,7 +115,8 @@ class Actor(BaseNet):
             self.intention_nets.append(IntentionActor(input_size=head_input_size,
                                                       hidden_size=head_hidden_size,
                                                       output_size=head_output_size,
-                                                      use_gpu=use_gpu))
+                                                      use_gpu=use_gpu,
+                                                      non_linear=non_linear))
 
         # Initialize the weights
         self.init_weights()
@@ -110,9 +124,9 @@ class Actor(BaseNet):
     def forward(self, x, intention):
         x = super().forward_base(x)
         # Feed forward through the relevant intention head
-        x = self.intention_nets[intention].forward(x)
+        mean, std = self.intention_nets[intention].forward(x)
         # Intention head determines parameters of Normal distribution
-        dist = torch.distributions.Normal(*x)
+        dist = torch.distributions.Normal(mean, std)
         action = dist.sample()
         return action
 
@@ -121,7 +135,7 @@ class Critic(BaseNet):
     """Class for Q-function (or critic) network"""
 
     def __init__(self,
-                 num_intentions=1,
+                 num_intentions=6,
                  state_dim=10,
                  base_hidden_size=64,
                  head_input_size=64,
@@ -149,3 +163,22 @@ class Critic(BaseNet):
         # Feed forward through the relevant intention head
         x = self.intention_nets[intention].forward(x)
         return x
+
+
+if __name__ == '__main__':
+
+    print('Run this file directly to debug')
+
+    actor = Actor()
+    critic = Critic()
+
+    # Carry out a step on the environment to test out forward functions
+    import gym
+    import random
+    env = gym.make('LunarLanderContinuous-v2')
+    obs = env.reset()
+    task_idx = random.randint(1, 6)
+
+    # Get the action from current actor policy
+    action = actor.forward(obs, task_idx)
+    _, _, _, _ = env.step(action)

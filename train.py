@@ -36,6 +36,7 @@ def cumulative_main_task_reward(trajectory, task_idx, task_period, gamma=0.95):
             total_reward += (gamma ** t) * main_task_reward
     return total_reward
 
+
 def actor_loss(trajectory, actor, critic, entropy_reg_param):
     """
     Follows Equation 9 in [1]
@@ -101,8 +102,7 @@ def act(num_trajectories=100, task_period=30):
 
 # Pseudo-code follows Algorithm 2 in [1]
 def learn(num_learning_iterations,
-          learning_rate=0.001):
-
+          learning_rate=0.0002):
     for i in range(num_learning_iterations):
 
         for k in range(1000):
@@ -110,12 +110,11 @@ def learn(num_learning_iterations,
             trajectory = random.choice(B)
 
             for task in trajectory_tasks:
-
                 # Use actor and critic from that specific trajectory
 
                 # optimizers for critic and actor
-                actor_opt = torch.optim.RMSprop(actor.parameters(), learning_rate)
-                critic_opt = torch.optim.RMSprop(critic.parameters(), learning_rate)
+                actor_opt = torch.optim.Adam(actor.parameters(), learning_rate)
+                critic_opt = torch.optim.Adam(critic.parameters(), learning_rate)
                 actor_opt.zero_grad()
                 critic_opt.zero_grad()
 
@@ -127,8 +126,8 @@ def learn(num_learning_iterations,
                 actor_opt.step()
                 critic_opt.step()
 
-if __name__ == 'main()':
 
+if __name__ == 'main()':
     # Initialize Q table as a dataframe
     q_table_columns = ['state', 'action', 'reward', 'task_id', 'policy']
     Q = pd.DataFrame(columns=q_table_columns)
@@ -140,30 +139,8 @@ if __name__ == 'main()':
     B = []
 
     # actor and critic policies are defined in networks.py
-    actor = Actor(state_dim=8,
-                  base_hidden_size=32,
-                  head_input_size=16,
-                  num_intentions=1,
-                  head_hidden_size=8,
-                  head_output_size=2,
-                  output_dim=2,
-                  action_gate=torch.nn.Tanh,
-                  action_scale=1.0,
-                  non_linear=torch.nn.ELU(),
-                  batch_norm=True,
-                  use_gpu=True)
-    critic = Critic(state_dim=10,
-                    base_hidden_size=64,
-                    num_intentions=1,
-                    head_input_size=64,
-                    head_hidden_size=32,
-                    head_output_size=1,
-                    output_dim=2,
-                    action_gate=torch.nn.Tanh,
-                    action_scale=1.0,
-                    non_linear=torch.nn.ELU(),
-                    batch_norm=True,
-                    use_gpu=True)
+    actor = Actor()
+    critic = Critic()
 
     # Environment is the lunar lander from OpenAI gym
     env = gym.make('LunarLanderContinuous-v2')
