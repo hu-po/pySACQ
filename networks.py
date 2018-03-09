@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 
+
 class IntentionNet(torch.nn.Module):
     """Generic class for a single intention head (used within actor/critic networks)"""
 
@@ -127,13 +128,16 @@ class Actor(BaseNet):
         # Initialize the weights
         self.init_weights()
 
-    def forward(self, x, intention):
+    def forward(self, x, intention, log_prob=False):
         x = super().forward_base(x)
         # Feed forward through the relevant intention head
         mean, std = self.intention_nets[intention].forward(x)
         # Intention head determines parameters of Normal distribution
         dist = torch.distributions.Normal(mean, std)
         action = dist.sample()
+        if log_prob:  # log probability is used to weigh actions selected under a different behavior policy
+            log_prob = dist.log_prob(action)
+            return action, log_prob
         return action
 
     def predict(self, x, intention, to_numpy=True):

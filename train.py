@@ -63,5 +63,5 @@ if __name__ == '__main__':
     task = TaskScheduler()
 
     act(actor, critic, env, task, B, num_trajectories=10, task_period=30)
-    learn(actor, critic, B, num_learning_iterations=10, lr=0.0002, erp=0.0001)
+    learn(actor, critic, task, B, num_learning_iterations=10, lr=0.0002, erp=0.0001)
     run(min_rate=0.01)
