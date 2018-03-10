@@ -49,6 +49,7 @@ class IntentionActor(IntentionNet):
 
         # Actor specific final layers (separate layers for mean and std)
         self.mean_activation_func = torch.nn.Tanh()
+        self.std_activation_func = torch.nn.Softmax()
         self.mean_layer = torch.nn.Linear(hidden_size, output_size)
         self.std_layer = torch.nn.Linear(hidden_size, output_size)
         torch.nn.init.xavier_uniform(self.mean_layer.weight.data)
@@ -60,7 +61,7 @@ class IntentionActor(IntentionNet):
         x = super().forward(x)
         # TODO: This isn't exactly what is in paper, check this
         mean = self.mean_activation_func(self.mean_layer(x))
-        std = self.non_linear(self.std_layer(x))
+        std = self.std_activation_func(self.std_layer(x))
         return mean, std
 
 
@@ -165,11 +166,11 @@ class Critic(BaseNet):
         # Create the many intention nets heads
         self.intention_nets = []
         for _ in range(num_intentions):
-            self.intention_nets.append(IntentionNet(input_size=head_input_size,
-                                                    hidden_size=head_hidden_size,
-                                                    output_size=head_output_size,
-                                                    use_gpu=use_gpu,
-                                                    non_linear=non_linear))
+            self.intention_nets.append(IntentionCritic(input_size=head_input_size,
+                                                       hidden_size=head_hidden_size,
+                                                       output_size=head_output_size,
+                                                       use_gpu=use_gpu,
+                                                       non_linear=non_linear))
 
         # Initialize the weights
         self.init_weights()

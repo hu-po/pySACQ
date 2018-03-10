@@ -85,13 +85,13 @@ def _compute_actor_loss(actor, critic, task, trajectory):
     """
     actor_loss = 0
     # Convert trajectory states into a Tensor
-    states = torch.autograd.Variable(torch.FloatTensor(np.array([step.state for step in trajectory])))
+    states = torch.FloatTensor(np.array([step.state for step in trajectory]))
     for task_id in range(task.num_tasks):
         # Vector of actions this particular intention policy would have taken at each state in the trajectory
         # as well as the log probability of that action having been taken
-        log_prob, actions = actor.forward(states, task_id, log_prob=True)
+        actions, log_prob = actor.forward(states, task_id, log_prob=True)
         # Combine action and state vectors to feed into critic
-        critic_input = torch.cat((actions, states), dim=0)
+        critic_input = torch.cat([actions.cpu().data, states], dim=1)
         # critic outputs the q value at each of the state action pairs
         q = critic.predict(critic_input, task_id)
         # Weight the q value by the log probability of that particular action
@@ -113,8 +113,8 @@ def _compute_critic_loss(actor, critic, task, trajectory, gamma=0.95):
     critic_loss = 0
     num_steps = len(trajectory)  # Number of steps in trajectory
     # Convert trajectory states into a Tensor
-    states = torch.autograd.Variable(torch.FloatTensor(np.array([step.state for step in trajectory])))
-    actions = torch.autograd.Variable(torch.FloatTensor(np.array([step.action for step in trajectory])))
+    states = torch.FloatTensor(np.array([step.state for step in trajectory]))
+    actions = torch.FloatTensor(np.array([step.action for step in trajectory]))
     for task_id in range(task.num_tasks):
 
         q_ret = []
@@ -140,8 +140,8 @@ def _compute_critic_loss(actor, critic, task, trajectory, gamma=0.95):
 
                 cj = 0
                 for k in range(i, j):
-                    log_prob1, _ = actor.forward(trajectory[k].state, task_id, log_prob=True)
-                    log_prob2, _ = actor.forward(trajectory[k].state, trajectory[k].task_id, log_prob=True)
+                    _, log_prob1 = actor.forward(trajectory[k].state, task_id, log_prob=True)
+                    _, log_prob2 = actor.forward(trajectory[k].state, trajectory[k].task_id, log_prob=True)
                     ck = min(1, (log_prob1 / log_prob2))
                     cj *= ck
 
