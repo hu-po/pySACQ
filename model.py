@@ -27,7 +27,7 @@ def cumulative_discounted_reward(trajectory, task_id, task_period, gamma=0.95):
     return total_reward
 
 
-def act(actor, critic, env, task, B, num_trajectories=10, task_period=30):
+def act(actor, critic, env, task, B, num_trajectories=10, task_period=30, writer=None):
     """
     Performs actions in the environment collecting reward/experience.
     This follows Algorithm 3 in [1]
@@ -38,6 +38,7 @@ def act(actor, critic, env, task, B, num_trajectories=10, task_period=30):
     :param B: (list) replay buffer containing trajectories
     :param num_trajectories: (int) number of trajectories to collect at a time
     :param task_period: (int) number of steps in a single task period
+    :param writer: (SummaryWriter) writer object for logging
     :return: None
     """
     for trajectory_idx in range(num_trajectories):
@@ -61,6 +62,9 @@ def act(actor, critic, env, task, B, num_trajectories=10, task_period=30):
             gym_reward = np.clip(-1.0, 1.0, gym_reward)
             # Reward is a vector of the reward for each task (with the main task reward appended)
             reward = task.reward(new_obs) + [gym_reward]
+            if writer:
+                for i in range(task.num_tasks):
+                    writer.add_scalar('reward_t%s' % i, reward[i])
             # group information into a step and add to current trajectory
             new_step = Step(obs, action, reward, task.current_task, actor, critic)
             trajectory.append(new_step)
@@ -153,7 +157,7 @@ def _compute_critic_loss(actor, critic, task, trajectory, gamma=0.95):
     return critic_loss
 
 
-def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size=10, lr=0.0002):
+def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size=10, lr=0.0002, writer=None):
     """
     Pushes back gradients from the replay buffer, updating the actor and critic.
     This follows Algorithm 2 in [1]
@@ -164,6 +168,7 @@ def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size
     :param num_learning_iterations: (int) number of learning iterations per function call
     :param episode_batch_size: (int) number of trajectories in a batch (one gradient push)
     :param lr: (float) learning rate
+    :param writer: (SummaryWriter) writer object for logging
     :return: None
     """
     for learn_idx in range(num_learning_iterations):
@@ -181,6 +186,9 @@ def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size
             # Compute losses for critic and actor
             actor_loss = _compute_actor_loss(actor, critic, task, trajectory)
             critic_loss = _compute_critic_loss(actor, critic, task, trajectory)
+            if writer:
+                writer.add_scalar('actor_loss', actor_loss)
+                writer.add_scalar('critic_loss', critic_loss)
             # TODO: Make sure to average gradients based on number of steps (batch size) per intention
             # compute gradients
             actor_loss.backwards()

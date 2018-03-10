@@ -1,14 +1,20 @@
+import argparse
 from pathlib import Path
 import sys
 import time
 import gym
+import torch
+from tensorboardX import SummaryWriter
 
 # Add local files to path
-ROOT_DIR = Path.cwd()
-sys.path.append(str(ROOT_DIR))
+root_dir = Path.cwd()
+sys.path.append(str(root_dir))
 from networks import Actor, Critic
 from tasks import TaskScheduler
 from model import act, learn
+
+parser = argparse.ArgumentParser(description='Train Arguments')
+parser.add_argument('--log', type=str, default=None, help='Write tensorboard style logs to this folder [default: None]')
 
 
 def run(actor, env, min_rate=None):
@@ -45,12 +51,23 @@ def run(actor, env, min_rate=None):
 
 
 if __name__ == '__main__':
+
+    # Parse and print out parameters
+    args = parser.parse_args()
+    print('Running Trainer. Parameters:')
+    for attr, value in args.__dict__.items():
+        print('%s : %s' % (attr.upper(), value))
+
+    # Make sure we can use gpu
+    use_gpu = torch.cuda.is_available()
+    print('Gpu is enabled: %s' % use_gpu)
+
     # Replay buffer stores collected trajectories
     B = []
 
     # actor and critic policies are defined in networks.py
-    actor = Actor()
-    critic = Critic()
+    actor = Actor(use_gpu=use_gpu)
+    critic = Critic(use_gpu=use_gpu)
 
     # Environment is the lunar lander from OpenAI gym
     env = gym.make('LunarLanderContinuous-v2')
@@ -58,6 +75,12 @@ if __name__ == '__main__':
     # task scheduler is defined in tasks.py
     task = TaskScheduler()
 
-    act(actor, critic, env, task, B, num_trajectories=10, task_period=30)
-    learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size=10, lr=0.0002)
+    # Write tensorboard logs to local logs folder
+    writer = None
+    if args.log:
+        log_dir = root_dir / 'logs' / args.log
+        writer = SummaryWriter(log_dir=str(log_dir))
+
+    act(actor, critic, env, task, B, num_trajectories=10, task_period=30, writer=writer)
+    learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size=10, lr=0.0002, writer=writer)
     run(min_rate=0.01)
