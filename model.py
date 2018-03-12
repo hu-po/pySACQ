@@ -6,6 +6,9 @@ import numpy as np
 # Named tuple for a single step within a trajectory
 Step = namedtuple('Step', ['state', 'action', 'reward', 'task_id', 'actor', 'critic'])
 
+# Global step counters
+ACT_STEP = 0
+LEARN_STEP = 0
 
 def cumulative_discounted_reward(trajectory, task_id, task_period, gamma=0.95):
     """
@@ -41,6 +44,7 @@ def act(actor, critic, env, task, B, num_trajectories=10, task_period=30, writer
     :param writer: (SummaryWriter) writer object for logging
     :return: None
     """
+    global ACT_STEP
     for trajectory_idx in range(num_trajectories):
         print('Acting: trajectory %s of %s' % (trajectory_idx + 1, num_trajectories))
         # Reset environment and trajectory specific parameters
@@ -64,11 +68,12 @@ def act(actor, critic, env, task, B, num_trajectories=10, task_period=30, writer
             reward = task.reward(new_obs) + [gym_reward]
             if writer:
                 for i in range(task.num_tasks):
-                    writer.add_scalar('reward_t%s' % i, reward[i])
+                    writer.add_scalar('reward_t%s' % i, reward[i], ACT_STEP)
             # group information into a step and add to current trajectory
             new_step = Step(obs, action, reward, task.current_task, actor, critic)
             trajectory.append(new_step)
             num_steps += 1  # increment step counter
+            ACT_STEP += 1
         # Add trajectory to replay buffer
         B.append(trajectory)
 
@@ -98,6 +103,8 @@ def _actor_loss(actor, critic, task, trajectory):
         q = torch.autograd.Variable(q, requires_grad=False).squeeze(1)
         # Loss is the log probability of that particular action weighted by the q value
         actor_loss += - torch.sum(q * log_prob)
+    # Divide by the number of runs to prevent trajectory length from mattering
+    actor_loss /= len(trajectory)
     return actor_loss
 
 
@@ -173,6 +180,7 @@ def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size
     :param writer: (SummaryWriter) writer object for logging
     :return: None
     """
+    global LEARN_STEP
     for learn_idx in range(num_learning_iterations):
         print('Learning: trajectory %s of %s' % (learn_idx + 1, num_learning_iterations))
         # optimizers for critic and actor
@@ -189,12 +197,13 @@ def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size
             actor_loss = _actor_loss(actor, critic, task, trajectory)
             # critic_loss = _critic_loss(actor, critic, task, trajectory)
             if writer:
-                writer.add_scalar('actor_loss', actor_loss)
+                writer.add_scalar('actor_loss', actor_loss, LEARN_STEP)
                 # writer.add_scalar('critic_loss', critic_loss)
             # TODO: Make sure to average gradients based on number of steps (batch size) per intention
             # compute gradients
             actor_loss.backward()
             # critic_loss.backward()
+            LEARN_STEP += 1
 
         # Push back the accumulated gradients and update the networks
         actor_opt.step()

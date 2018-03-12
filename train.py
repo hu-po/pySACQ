@@ -4,6 +4,7 @@ import sys
 import time
 import gym
 import torch
+import numpy as np
 from tensorboardX import SummaryWriter
 
 # Add local files to path
@@ -15,6 +16,7 @@ from model import act, learn
 
 parser = argparse.ArgumentParser(description='Train Arguments')
 parser.add_argument('--log', type=str, default=None, help='Write tensorboard style logs to this folder [default: None]')
+parser.add_argument('--num_train_cycles', type=int, default=1, help='Number of training cycles [default: 1]')
 
 
 def run(actor, env, min_rate=None):
@@ -38,7 +40,7 @@ def run(actor, env, min_rate=None):
         # Use the previous observation to get an action from policy
         action = actor.predict(obs, -1)  # Last intention is main task
         # Step the environment and push outputs to policy
-        obs, reward, done, _ = env.step(action)
+        obs, reward, done, _ = env.step(np.asscalar(action))
         step_toc = time.clock()
         step_time = step_toc - step_tic
         if min_rate and step_time < min_rate:  # Sleep to ensure minimum rate
@@ -81,6 +83,14 @@ if __name__ == '__main__':
         log_dir = root_dir / 'logs' / args.log
         writer = SummaryWriter(log_dir=str(log_dir))
 
-    act(actor, critic, env, task, B, num_trajectories=10, task_period=30, writer=writer)
-    learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size=10, lr=0.0002, writer=writer)
-    run(min_rate=0.01)
+    for i in range(args.num_train_cycles):
+        print('Training cycle %s of %s' % (i, args.num_train_cycles))
+        act(actor, critic, env, task, B, num_trajectories=10, task_period=30, writer=writer)
+        learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size=10, lr=0.0002, writer=writer)
+        run(actor, env, min_rate=0.01)
+
+    # Close writer
+    try:
+        writer.close()
+    except:
+        pass
