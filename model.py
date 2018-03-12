@@ -59,7 +59,7 @@ def act(actor, critic, env, task, B, num_trajectories=10, task_period=30, writer
             # Execute action and collect rewards for each task
             new_obs, gym_reward, done, _ = env.step(action)
             # Clip the gym reward to be between -1 and 1 (the huge -100 and 100 values cause instability)
-            gym_reward = np.clip(-1.0, 1.0, gym_reward)
+            gym_reward = np.clip(-1.0, 1.0, gym_reward/100.0)
             # Reward is a vector of the reward for each task (with the main task reward appended)
             reward = task.reward(new_obs) + [gym_reward]
             if writer:
@@ -73,7 +73,7 @@ def act(actor, critic, env, task, B, num_trajectories=10, task_period=30, writer
         B.append(trajectory)
 
 
-def _compute_actor_loss(actor, critic, task, trajectory):
+def _actor_loss(actor, critic, task, trajectory):
     """
     Computes the actor loss for a given trajectory. Uses the Q value from the critic.
     This follows equations 5 and 9 in [1]
@@ -99,7 +99,7 @@ def _compute_actor_loss(actor, critic, task, trajectory):
     return actor_loss
 
 
-def _compute_critic_loss(actor, critic, task, trajectory, gamma=0.95):
+def _critic_loss(actor, critic, task, trajectory, gamma=0.95):
     """
     Computes the critic loss for a given trajectory. Based on the Retrace method.
     This follows equation 13 in [1]
@@ -184,8 +184,8 @@ def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size
             # Sample a random trajectory from the replay buffer
             trajectory = random.choice(B)
             # Compute losses for critic and actor
-            actor_loss = _compute_actor_loss(actor, critic, task, trajectory)
-            critic_loss = _compute_critic_loss(actor, critic, task, trajectory)
+            actor_loss = _actor_loss(actor, critic, task, trajectory)
+            critic_loss = _critic_loss(actor, critic, task, trajectory)
             if writer:
                 writer.add_scalar('actor_loss', actor_loss)
                 writer.add_scalar('critic_loss', critic_loss)

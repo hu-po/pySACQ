@@ -84,6 +84,7 @@ class TaskScheduler(object):
     """Class defines Scheduler for storing and picking tasks"""
 
     def __init__(self):
+        # TODO: This needs to include the main task
         self.task_rewards = [touch,
                              hover_planar,
                              hover_angular,
