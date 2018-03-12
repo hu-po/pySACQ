@@ -57,9 +57,9 @@ def act(actor, critic, env, task, B, num_trajectories=10, task_period=30, writer
             # Get the action from current actor policy
             action = actor.predict(obs, task.current_task)
             # Execute action and collect rewards for each task
-            new_obs, gym_reward, done, _ = env.step(action)
-            # Clip the gym reward to be between -1 and 1 (the huge -100 and 100 values cause instability)
-            gym_reward = np.clip(-1.0, 1.0, gym_reward / 100.0)
+            new_obs, gym_reward, done, _ = env.step(np.asscalar(action))
+            # # Clip the gym reward to be between -1 and 1 (the huge -100 and 100 values cause instability)
+            # gym_reward = np.clip(-1.0, 1.0, gym_reward / 100.0)
             # Reward is a vector of the reward for each task (with the main task reward appended)
             reward = task.reward(new_obs) + [gym_reward]
             if writer:
@@ -91,13 +91,13 @@ def _actor_loss(actor, critic, task, trajectory):
         # as well as the log probability of that action having been taken
         actions, log_prob = actor.forward(states, task_id, log_prob=True)
         # Combine action and state vectors to feed into critic
-        critic_input = torch.cat([actions.cpu().data, states], dim=1)
+        critic_input = torch.cat([actions.data.float().unsqueeze(1), states], dim=1)
         # critic outputs the q value at each of the state action pairs
         q = critic.predict(critic_input, task_id, to_numpy=False)
         # TODO: Why does this tensor need to be converted to a Variable for .mul() to work?
-        q = torch.autograd.Variable(q, requires_grad=False)
+        q = torch.autograd.Variable(q, requires_grad=False).squeeze(1)
         # Loss is the log probability of that particular action weighted by the q value
-        actor_loss += - torch.sum(log_prob * torch.cat((q, q), dim=1), dim=0)
+        actor_loss += - torch.sum(q * log_prob)
     return actor_loss
 
 
@@ -177,25 +177,25 @@ def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size
         print('Learning: trajectory %s of %s' % (learn_idx + 1, num_learning_iterations))
         # optimizers for critic and actor
         actor_opt = torch.optim.Adam(actor.parameters(), lr)
-        critic_opt = torch.optim.Adam(critic.parameters(), lr)
+        # critic_opt = torch.optim.Adam(critic.parameters(), lr)
         # Zero the gradients and set the losses to zero
         actor_opt.zero_grad()
-        critic_opt.zero_grad()
+        # critic_opt.zero_grad()
 
         for batch_idx in range(episode_batch_size):
             # Sample a random trajectory from the replay buffer
             trajectory = random.choice(B)
             # Compute losses for critic and actor
             actor_loss = _actor_loss(actor, critic, task, trajectory)
-            critic_loss = _critic_loss(actor, critic, task, trajectory)
+            # critic_loss = _critic_loss(actor, critic, task, trajectory)
             if writer:
                 writer.add_scalar('actor_loss', actor_loss)
-                writer.add_scalar('critic_loss', critic_loss)
+                # writer.add_scalar('critic_loss', critic_loss)
             # TODO: Make sure to average gradients based on number of steps (batch size) per intention
             # compute gradients
-            actor_loss.backwards()
-            critic_loss.backwards()
+            actor_loss.backward()
+            # critic_loss.backward()
 
         # Push back the accumulated gradients and update the networks
         actor_opt.step()
-        critic_opt.step()
+        # critic_opt.step()

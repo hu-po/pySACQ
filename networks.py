@@ -2,11 +2,11 @@ import torch
 import numpy as np
 
 
-class IntentionNet(torch.nn.Module):
+class IntentionBase(torch.nn.Module):
     """Generic class for a single intention head (used within actor/critic networks)"""
 
-    def __init__(self, input_size, hidden_size, output_size, non_linear, use_gpu=True):
-        super(IntentionNet, self).__init__()
+    def __init__(self, input_size, hidden_size, non_linear, use_gpu=True):
+        super(IntentionBase, self).__init__()
         self.non_linear = non_linear
         self.use_gpu = use_gpu
 
@@ -24,45 +24,40 @@ class IntentionNet(torch.nn.Module):
         return x
 
 
-class IntentionCritic(IntentionNet):
+class IntentionCritic(IntentionBase):
     """Class for a single Intention head within the Q-function (or critic) network"""
 
     def __init__(self, input_size, hidden_size, output_size, non_linear, use_gpu=True):
-        super(IntentionCritic, self).__init__(input_size, hidden_size, output_size, non_linear, use_gpu)
+        super(IntentionCritic, self).__init__(input_size, hidden_size, non_linear, use_gpu)
 
         # Critic specific final layer
-        self.layer2 = torch.nn.Linear(hidden_size, output_size)
-        torch.nn.init.xavier_uniform(self.layer2.weight.data)
-        torch.nn.init.constant(self.layer2.bias.data, 0)
+        self.final_layer = torch.nn.Linear(hidden_size, output_size)
+        torch.nn.init.xavier_uniform(self.final_layer.weight.data)
+        torch.nn.init.constant(self.final_layer.bias.data, 0)
 
     def forward(self, x):
         x = super().forward(x)
-        x = self.non_linear(self.layer2(x))
+        x = self.non_linear(self.final_layer(x))
         return x
 
 
-class IntentionActor(IntentionNet):
+class IntentionActor(IntentionBase):
     """Class for a single Intention head within the policy (or actor) network"""
 
     def __init__(self, input_size, hidden_size, output_size, non_linear, use_gpu=True):
-        super(IntentionActor, self).__init__(input_size, hidden_size, output_size, non_linear, use_gpu)
+        super(IntentionActor, self).__init__(input_size, hidden_size, non_linear, use_gpu)
 
-        # Actor specific final layers (separate layers for mean and std)
-        self.mean_activation_func = torch.nn.Tanh()
-        self.std_activation_func = torch.nn.Softmax()
-        self.mean_layer = torch.nn.Linear(hidden_size, output_size)
-        self.std_layer = torch.nn.Linear(hidden_size, output_size)
-        torch.nn.init.xavier_uniform(self.mean_layer.weight.data)
-        torch.nn.init.constant(self.mean_layer.bias.data, 0)
-        torch.nn.init.xavier_uniform(self.std_layer.weight.data)
-        torch.nn.init.constant(self.std_layer.bias.data, 0)
+        # Actor specific final layers
+        self.final_activation_func = torch.nn.Softmax()
+        self.final_layer = torch.nn.Linear(hidden_size, output_size)
+        torch.nn.init.xavier_uniform(self.final_layer.weight.data)
+        torch.nn.init.constant(self.final_layer.bias.data, 0)
 
     def forward(self, x):
         x = super().forward(x)
         # TODO: This isn't exactly what is in paper, check this
-        mean = self.mean_activation_func(self.mean_layer(x))
-        std = self.std_activation_func(self.std_layer(x))
-        return mean, std
+        x = self.final_activation_func(self.final_layer(x))
+        return x
 
 
 class BaseNet(torch.nn.Module):
@@ -111,7 +106,7 @@ class Actor(BaseNet):
                  base_hidden_size=32,
                  head_input_size=16,
                  head_hidden_size=8,
-                 head_output_size=2,
+                 head_output_size=4,
                  non_linear=torch.nn.ELU(),
                  batch_norm=False,
                  use_gpu=True):
@@ -132,9 +127,9 @@ class Actor(BaseNet):
     def forward(self, x, intention, log_prob=False):
         x = super().forward_base(x)
         # Feed forward through the relevant intention head
-        mean, std = self.intention_nets[intention].forward(x)
-        # Intention head determines parameters of Normal distribution
-        dist = torch.distributions.Normal(mean, std)
+        probs = self.intention_nets[intention].forward(x)
+        # Intention head determines parameters of Categorical distribution
+        dist = torch.distributions.Categorical(probs)
         action = dist.sample()
         if log_prob:  # log probability is used to weigh actions selected under a different behavior policy
             log_prob = dist.log_prob(action)
@@ -143,8 +138,6 @@ class Actor(BaseNet):
 
     def predict(self, x, intention, to_numpy=True):
         y = super().predict(x, intention, to_numpy)
-        # Make sure action values are between -1 and 1
-        np.clip(y, -1.0, 1.0, out=y)
         return y
 
 
@@ -153,7 +146,7 @@ class Critic(BaseNet):
 
     def __init__(self,
                  num_intentions=6,
-                 state_dim=10,
+                 state_dim=9,
                  base_hidden_size=64,
                  head_input_size=64,
                  head_hidden_size=32,
@@ -192,7 +185,7 @@ if __name__ == '__main__':
     import gym
     import random
 
-    env = gym.make('LunarLanderContinuous-v2')
+    env = gym.make('LunarLander-v2')
     obs = env.reset()
     task_idx = random.randint(0, 5)
 

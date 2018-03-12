@@ -1,7 +1,7 @@
 # PySACX
 
-This repo contains a Pytorch implementation of the SAC-X RL Algorithm [1]. It uses the continuous Lunar
-Lander environment from OpenAI gym. The SAC-X algorithm enables learning of complex behaviors from scratch
+This repo contains a Pytorch implementation of the SAC-X RL Algorithm [1]. It uses the Lunar Lander v2
+environment from OpenAI gym. The SAC-X algorithm enables learning of complex behaviors from scratch
 in the presence of multiple sparse reward signals.
  
 ## Theory

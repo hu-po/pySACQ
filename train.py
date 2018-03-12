@@ -70,7 +70,7 @@ if __name__ == '__main__':
     critic = Critic(use_gpu=use_gpu)
 
     # Environment is the lunar lander from OpenAI gym
-    env = gym.make('LunarLanderContinuous-v2')
+    env = gym.make('LunarLander-v2')
 
     # task scheduler is defined in tasks.py
     task = TaskScheduler()
