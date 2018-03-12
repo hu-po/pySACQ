@@ -96,9 +96,9 @@ class BaseNet(torch.nn.Module):
         return x
 
     def predict(self, x, intention, to_numpy=True):
-        y = self.forward(x, intention)
+        y = self.forward(x, intention).cpu().data
         if to_numpy:
-            y = y.cpu().data.numpy()
+            y = y.numpy()
         return y
 
 

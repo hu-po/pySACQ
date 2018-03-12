@@ -59,7 +59,7 @@ def act(actor, critic, env, task, B, num_trajectories=10, task_period=30, writer
             # Execute action and collect rewards for each task
             new_obs, gym_reward, done, _ = env.step(action)
             # Clip the gym reward to be between -1 and 1 (the huge -100 and 100 values cause instability)
-            gym_reward = np.clip(-1.0, 1.0, gym_reward/100.0)
+            gym_reward = np.clip(-1.0, 1.0, gym_reward / 100.0)
             # Reward is a vector of the reward for each task (with the main task reward appended)
             reward = task.reward(new_obs) + [gym_reward]
             if writer:
@@ -93,9 +93,11 @@ def _actor_loss(actor, critic, task, trajectory):
         # Combine action and state vectors to feed into critic
         critic_input = torch.cat([actions.cpu().data, states], dim=1)
         # critic outputs the q value at each of the state action pairs
-        q = critic.predict(critic_input, task_id)
-        # Weight the q value by the log probability of that particular action
-        actor_loss += log_prob * q
+        q = critic.predict(critic_input, task_id, to_numpy=False)
+        # TODO: Why does this tensor need to be converted to a Variable for .mul() to work?
+        q = torch.autograd.Variable(q, requires_grad=False)
+        # Loss is the log probability of that particular action weighted by the q value
+        actor_loss += - torch.sum(log_prob * torch.cat((q, q), dim=1), dim=0)
     return actor_loss
 
 
