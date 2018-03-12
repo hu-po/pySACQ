@@ -85,8 +85,8 @@ if __name__ == '__main__':
 
     for i in range(args.num_train_cycles):
         print('Training cycle %s of %s' % (i, args.num_train_cycles))
-        act(actor, critic, env, task, B, num_trajectories=10, task_period=30, writer=writer)
-        learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size=10, lr=0.0002, writer=writer)
+        act(actor, critic, env, task, B, num_trajectories=5, task_period=20, writer=writer)
+        learn(actor, critic, task, B, num_learning_iterations=5, episode_batch_size=10, lr=0.0002, writer=writer)
         run(actor, env, min_rate=0.01)
 
     # Close writer

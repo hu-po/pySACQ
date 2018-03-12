@@ -10,6 +10,7 @@ Step = namedtuple('Step', ['state', 'action', 'reward', 'task_id', 'actor', 'cri
 ACT_STEP = 0
 LEARN_STEP = 0
 
+
 def cumulative_discounted_reward(trajectory, task_id, task_period, gamma=0.95):
     """
     Follows Equation 6 in [1]
@@ -124,39 +125,41 @@ def _critic_loss(actor, critic, task, trajectory, gamma=0.95):
     # Convert trajectory states into a Tensor
     states = torch.FloatTensor(np.array([step.state for step in trajectory]))
     actions = torch.FloatTensor(np.array([step.action for step in trajectory]))
+    rewards = torch.FloatTensor(np.array([step.reward for step in trajectory]))
+    task_ids = torch.FloatTensor(np.array([step.task_id for step in trajectory]))
     for task_id in range(task.num_tasks):
-
         q_ret = []
 
         for i in range(num_steps):
-
             q_ret_i = 0
 
-            action = actor.predict(trajectory[i].state, task_id)
-            critic_input = torch.cat((action, trajectory[i].state), dim=0)
-            qi = critic.predict(critic_input, task_id)
+            # Get the task-specific q value for the task-specific action at state action pair (i)
+            action = actor.predict(states[i, :], task_id, to_numpy=False)
+            critic_input = torch.cat((action.float(), states[i, :]), dim=0)
+            qi = critic.predict(critic_input, task_id, to_numpy=False)
 
             for j in range(i, num_steps):
 
-                critic_input = torch.cat((trajectory[j].action, trajectory[j].state), dim=0)
-                qj = critic.predict(critic_input, task_id)
-
-                reward = trajectory[j][task_id]
-
+                # Get the task-specific q value for the trajectory action at state action pair (j)
+                critic_input = torch.cat((actions[j].float(), states[j, :]), dim=0)
+                qj = critic.predict(critic_input, task_id, to_numpy=False)
+                # Difference between these two q values
                 del_q = qi - qj
 
+                # Discount factor
                 discount = gamma ** (j - i)
-
+                # Importance weights
                 cj = 0
                 for k in range(i, j):
-                    _, log_prob1 = actor.forward(trajectory[k].state, task_id, log_prob=True)
-                    _, log_prob2 = actor.forward(trajectory[k].state, trajectory[k].task_id, log_prob=True)
-                    ck = min(1, (log_prob1 / log_prob2))
+                    _, log_prob1 = actor.forward(states[k, :], task_id, log_prob=True)
+                    _, log_prob2 = actor.forward(states[k, :], int(task_ids[k]), log_prob=True)
+                    ck = torch.min((log_prob1.data / log_prob2.data), torch.Tensor([1]))
                     cj *= ck
+                # Retrace Q value is sum of discounted weighted rewards
+                q_ret_i += discount * cj * (rewards[j, task_id] + del_q)
 
-                q_ret_i += discount * cj * (reward + del_q)
-
-            q_ret[i] = q_ret_i
+            # Append retrace Q value to trajectory length Q_ret list
+            q_ret.append(q_ret_i)
 
         critic_input = torch.cat((actions, states), dim=0)
         q = critic.forward(critic_input, task_id)
@@ -185,24 +188,24 @@ def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size
         print('Learning: trajectory %s of %s' % (learn_idx + 1, num_learning_iterations))
         # optimizers for critic and actor
         actor_opt = torch.optim.Adam(actor.parameters(), lr)
-        # critic_opt = torch.optim.Adam(critic.parameters(), lr)
+        critic_opt = torch.optim.Adam(critic.parameters(), lr)
         # Zero the gradients and set the losses to zero
         actor_opt.zero_grad()
-        # critic_opt.zero_grad()
+        critic_opt.zero_grad()
 
         for batch_idx in range(episode_batch_size):
             # Sample a random trajectory from the replay buffer
             trajectory = random.choice(B)
             # Compute losses for critic and actor
             actor_loss = _actor_loss(actor, critic, task, trajectory)
-            # critic_loss = _critic_loss(actor, critic, task, trajectory)
+            critic_loss = _critic_loss(actor, critic, task, trajectory)
             if writer:
                 writer.add_scalar('actor_loss', actor_loss, LEARN_STEP)
-                # writer.add_scalar('critic_loss', critic_loss)
+                writer.add_scalar('critic_loss', critic_loss, LEARN_STEP)
             # TODO: Make sure to average gradients based on number of steps (batch size) per intention
             # compute gradients
             actor_loss.backward()
-            # critic_loss.backward()
+            critic_loss.backward()
             LEARN_STEP += 1
 
         # Push back the accumulated gradients and update the networks
