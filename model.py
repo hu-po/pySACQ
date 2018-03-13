@@ -126,16 +126,19 @@ def _actor_loss(actor, critic, task, trajectory):
     task_mask = np.repeat(task_mask, len(trajectory))
     imask_alltasks = torch.LongTensor(task_mask)
     state_alltasks = states.repeat(task.num_tasks, 1)
+
+    # Vector of actions specific intention policies would have taken at each state in the trajectory
+    # as well as the log probability of that action having been taken
     actions, log_prob = actor.forward(state_alltasks, imask_alltasks, log_prob=True)
+    # Combine action and state vectors to feed into critic
+    critic_input = torch.cat([actions.data.float().unsqueeze(1), states], dim=1)
+    # critic outputs the q value at each of the state action pairs
+    q = critic.predict(critic_input, imask_alltasks, to_numpy=False)
 
     for task_id in range(task.num_tasks):
-        # Vector of actions this particular intention policy would have taken at each state in the trajectory
-        # as well as the log probability of that action having been taken
-        actions, log_prob = actor.forward(states, task_id, log_prob=True)
-        # Combine action and state vectors to feed into critic
-        critic_input = torch.cat([actions.data.float().unsqueeze(1), states], dim=1)
-        # critic outputs the q value at each of the state action pairs
-        q = critic.predict(critic_input, task_id, to_numpy=False)
+
+
+
         # TODO: Why does this tensor need to be converted to a Variable for .mul() to work?
         q = torch.autograd.Variable(q, requires_grad=False).squeeze(1)
         # Loss is the log probability of that particular action weighted by the q value
