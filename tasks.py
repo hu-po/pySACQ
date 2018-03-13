@@ -1,5 +1,6 @@
 import random
 
+
 # Observation space, according to source:
 # state = [
 #     (pos.x - VIEWPORT_W / SCALE / 2) / (VIEWPORT_W / SCALE / 2),
@@ -84,13 +85,14 @@ class TaskScheduler(object):
     """Class defines Scheduler for storing and picking tasks"""
 
     def __init__(self):
-        # TODO: This needs to include the main task
-        self.task_rewards = [touch,
-                             hover_planar,
-                             hover_angular,
-                             upright,
-                             goal_distance]
-        self.num_tasks = len(self.task_rewards)
+        self.aux_rewards = [touch,
+                            hover_planar,
+                            hover_angular,
+                            upright,
+                            goal_distance]
+
+        # Number of tasks is number of auxiliary tasks plus the main task
+        self.num_tasks = len(self.aux_rewards) + 1
 
         # Internal tracking variable for current task, and set of tasks
         self.current_task = 0
@@ -103,8 +105,10 @@ class TaskScheduler(object):
         self.current_task = random.randint(0, self.num_tasks)
         self.current_set.add(self.current_task)
 
-    def reward(self, state):
+    def reward(self, state, main_reward):
         reward_vector = []
         for task_reward in self.task_rewards:
             reward_vector.append(task_reward(state))
+        # Append main task reward
+        reward_vector.append(main_reward)
         return reward_vector

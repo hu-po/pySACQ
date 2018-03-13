@@ -124,12 +124,20 @@ class Actor(BaseNet):
         # Initialize the weights
         self.init_weights()
 
-    def forward(self, x, intention, log_prob=False):
+    def forward(self, x, intention, intention_mask=False, log_prob=False):
         x = super().forward_base(x)
-        # Feed forward through the relevant intention head
-        probs = self.intention_nets[intention].forward(x)
+        if intention_mask and isinstance(intention, list):
+            # Feed forward through all the intention heads concatenate on new dimension
+            # TODO: Did I just move the for loop into the forward function?
+            x = torch.cat((self.intention_nets[i].forward(x) for i in intention), dim=2)
+            # The intention masks the output
+            # TODO: intention number to a one hot vector that reduces the number of dimmensions?
+            # TODO: Maybe some kind of summation is required?
+        else:
+            # Feed forward through a single intention head
+            x = self.intention_nets[intention].forward(x)
         # Intention head determines parameters of Categorical distribution
-        dist = torch.distributions.Categorical(probs)
+        dist = torch.distributions.Categorical(x)
         action = dist.sample()
         if log_prob:  # log probability is used to weigh actions selected under a different behavior policy
             log_prob = dist.log_prob(action)
