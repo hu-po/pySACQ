@@ -11,26 +11,6 @@ ACT_STEP = 0
 LEARN_STEP = 0
 
 
-def cumulative_discounted_reward(trajectory, task_id, task_period, gamma=0.95):
-    """
-    Follows Equation 6 in [1]
-    :return:
-    """
-    total_reward = 0
-    # first summation in paper
-    h_bounds_from = 0
-    h_bounds_to = 2
-    for h in range(h_bounds_from, h_bounds_to):
-        # second summation in paper
-        time_bounds_from = h * task_period
-        time_bounds_to = (h + 1) * task_period
-        for t in range(time_bounds_from, time_bounds_to):
-            # The reward for the main task is at the end of the rewards vector
-            main_task_reward = trajectory[t].reward[-1]
-            total_reward += (gamma ** t) * main_task_reward
-    return total_reward
-
-
 def act(actor, env, task, B, num_trajectories=10, task_period=30, writer=None):
     """
     Performs actions in the environment collecting reward/experience.
@@ -66,7 +46,6 @@ def act(actor, env, task, B, num_trajectories=10, task_period=30, writer=None):
             # gym_reward = np.clip(-1.0, 1.0, gym_reward / 100.0)
             # Reward is a vector of the reward for each task
             reward = task.reward(obs, gym_reward)
-            # TODO: This might be better if you could look at ...
             if writer:
                 reward_dict = dict((str(i), r) for i, r in enumerate(reward))
                 # TODO: The point is to create regex-able logs
@@ -80,104 +59,43 @@ def act(actor, env, task, B, num_trajectories=10, task_period=30, writer=None):
         B.append(trajectory)
 
 
-def _prepare_trajectory(trajectory, task):
+def _calculate_losses(trajectory, task, actor, critic, gamma=0.95):
     """
-    Prepares the list of namedtuples trajectory object into the required FloatTensors
-    and intention masks required by the loss calculations.
+    Calculates actor and critic losses for a given trajectory
     :param trajectory: (list of Steps) trajectory or episode
     :param task: (Task) task object
-    :return:
-    """
-    # Number of steps in trajectory
-    num_steps = len(trajectory)
-
-    # Convert trajectory states into a Tensor
-    states = torch.FloatTensor(np.array([step.state for step in trajectory]))
-    actions = torch.FloatTensor(np.array([step.action for step in trajectory]))
-    rewards = torch.FloatTensor(np.array([step.reward for step in trajectory]))
-    log_prob = torch.FloatTensor(np.array([step.log_prob for step in trajectory]))
-
-    # Create an intention mask for all the types of intentions (tasks)
-    task_mask = np.arange(0, task.num_tasks)
-    np.repeat(task_mask, num_steps)
-    imask_alltasks = torch.FloatTensor(task_mask)
-
-    # Create an intention mask for the specific trajectory
-    imask_trajectory = torch.FloatTensor(np.array([step.task_id for step in trajectory]))
-
-
-
-
-def _actor_loss(actor, critic, task, trajectory):
-    """
-    Computes the actor loss for a given trajectory. Uses the Q value from the critic.
-    This follows equations 5 and 9 in [1]
     :param actor: (Actor) actor network object
     :param critic: (Critic) critic network object
-    :param task: (Task) task object
-    :param trajectory:
-    :return: actor loss
-    """
-    actor_loss = 0
-    states = torch.FloatTensor(np.array([step.state for step in trajectory]))
-
-    # Create an intention mask for all the types of intentions (tasks)
-    task_mask = np.arange(0, task.num_tasks)
-    task_mask = np.repeat(task_mask, len(trajectory))
-    imask_alltasks = torch.LongTensor(task_mask)
-    state_alltasks = states.repeat(task.num_tasks, 1)
-
-    # Vector of actions specific intention policies would have taken at each state in the trajectory
-    # as well as the log probability of that action having been taken
-    actions, log_prob = actor.forward(state_alltasks, imask_alltasks, log_prob=True)
-    # Combine action and state vectors to feed into critic
-    critic_input = torch.cat([actions.data.float().unsqueeze(1), states], dim=1)
-    # critic outputs the q value at each of the state action pairs
-    q = critic.predict(critic_input, imask_alltasks, to_numpy=False)
-
-    for task_id in range(task.num_tasks):
-
-
-
-        # TODO: Why does this tensor need to be converted to a Variable for .mul() to work?
-        q = torch.autograd.Variable(q, requires_grad=False).squeeze(1)
-        # Loss is the log probability of that particular action weighted by the q value
-        actor_loss += - torch.sum(q * log_prob)
-    # Divide by the number of runs to prevent trajectory length from mattering
-    actor_loss /= len(trajectory)
-    return actor_loss
-
-
-def _critic_loss(actor, critic, task, trajectory, gamma=0.95):
-    """
-    Computes the critic loss for a given trajectory. Based on the Retrace method.
-    This follows equation 13 in [1]
-    :param actor: (Actor) actor network object
-    :param critic: (Critic) critic network object
-    :param task: (Task) task object
-    :param trajectory: (list of Steps) trajectory or episode
     :param gamma: (float) discount factor
-    :return: critic loss
+    :return: (float, float) actor and critic loss
     """
-    critic_loss = 0
-    num_steps = len(trajectory)  # Number of steps in trajectory
-    # Convert trajectory states into a Tensor
+    # Extract information out of trajectory
+    num_steps = len(trajectory)
     states = torch.FloatTensor(np.array([step.state for step in trajectory]))
     actions = torch.FloatTensor(np.array([step.action for step in trajectory]))
     rewards = torch.FloatTensor(np.array([step.reward for step in trajectory]))
+    log_probs = torch.FloatTensor(np.array([step.log_prob for step in trajectory]))
+    # Create an intention (task) mask for all possible intentions
+    task_mask = np.arange(0, task.num_tasks)
+    task_mask = np.repeat(task_mask, num_steps)
+    imask_task = torch.LongTensor(task_mask)
+    states = states.repeat(task.num_tasks, 1)
+    actions = actions.repeat(task.num_tasks, 1)
+    # actions (for each task) for every state action pair in trajectory
+    task_actions, task_log_prob = actor.forward(states, imask_task, log_prob=True)
+    # Q-values (for each task) for every state and task-action pair in trajectory
+    critic_input = torch.cat([task_actions.data.float().unsqueeze(1), states], dim=1)
+    task_q = critic.forward(critic_input, imask_task)
+    # Q-values (for each task) for every state and action pair in trajectory
+    critic_input = torch.cat([actions, states], dim=1)
+    traj_q = critic.predict(critic_input, imask_task, to_numpy=False)
+    # Actor loss is log-prob weighted sum of Q values (for each task) given states from trajectory
+    actor_loss = - torch.sum(torch.autograd.Variable(task_q.data, requires_grad=False).squeeze(1) * task_log_prob)
+    actor_loss /= len(trajectory)  # Divide by the number of runs to prevent trajectory length from mattering
+    # Calculation of retrace Q
+    q_ret = torch.zeros_like(task_q.data)
     for task_id in range(task.num_tasks):
-        # Get the task-specific q value for the task-specific action at every state action pair
-        task_action = actor.predict(states, task_id, to_numpy=False)
-        critic_input = torch.cat((task_action.float().unsqueeze(1), states), dim=1)
-        qi = critic.predict(critic_input, task_id, to_numpy=False)
-        # Get the task-specific q value for the trajectory action at every state action pair
-        critic_input = torch.cat((actions, states), dim=1)
-        q = critic.forward(critic_input, task_id)
-        qj = q.data
-        # Get the task-specific logprob values for the trajectory action at every state action pair
-        _, task_log_prob = actor.forward(states, task_id, log_prob=True)
-        # Calculation of retrace Q
-        q_ret = torch.zeros(num_steps, 1)
+        start = task_id * num_steps
         for i in range(num_steps):
             q_ret_i = 0
             for j in range(i, num_steps):
@@ -186,16 +104,17 @@ def _critic_loss(actor, critic, task, trajectory, gamma=0.95):
                 # Importance weights
                 cj = 1.0
                 for k in range(i, j):
-                    ck = min((task_log_prob[k].data[0] / float(trajectory[k].log_prob)), 1.0)
+                    ck = min((task_log_prob.data[start + k] / float(log_probs[k])), 1.0)
                     cj *= ck
                 # Difference between the two q values
-                del_q = qi[i] - qj[j]
+                del_q = task_q.data[start + i] - traj_q[start + j]
                 # Retrace Q value is sum of discounted weighted rewards
                 q_ret_i += discount * cj * (rewards[j, task_id] + del_q)
             # Append retrace Q value to float tensor using index_fill
-            q_ret.index_fill_(0, torch.LongTensor([i]), q_ret_i[0])
-        critic_loss += torch.sum((q - torch.autograd.Variable(q_ret, requires_grad=False)) ** 2)
-    return critic_loss
+            q_ret.index_fill_(0, torch.LongTensor([start + i]), q_ret_i[0])
+    # Critic loss uses retrace Q
+    critic_loss = torch.sum((task_q - torch.autograd.Variable(q_ret, requires_grad=False)) ** 2)
+    return actor_loss, critic_loss
 
 
 def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size=10, lr=0.0002, writer=None):
@@ -226,8 +145,9 @@ def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size
             # Sample a random trajectory from the replay buffer
             trajectory = random.choice(B)
             # Compute losses for critic and actor
-            actor_loss = _actor_loss(actor, critic, task, trajectory)
-            critic_loss = _critic_loss(actor, critic, task, trajectory)
+            # actor_loss = _actor_loss(actor, critic, task, trajectory)
+            # critic_loss = _critic_loss(actor, critic, task, trajectory)
+            actor_loss, critic_loss = _calculate_losses(trajectory, task, actor, critic)
             if writer:
                 writer.add_scalar('train/loss/actor', actor_loss, LEARN_STEP)
                 writer.add_scalar('train/loss/critic', critic_loss, LEARN_STEP)
@@ -239,4 +159,4 @@ def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size
 
         # Push back the accumulated gradients and update the networks
         actor_opt.step()
-        # critic_opt.step()
+        critic_opt.step()

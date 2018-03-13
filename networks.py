@@ -58,6 +58,7 @@ class IntentionActor(IntentionBase):
 
 
 class SQXNet(torch.nn.Module):
+    """Generic class for actor and critic networks. The arch is very similar."""
 
     def __init__(self,
                  state_dim,
@@ -221,7 +222,7 @@ if __name__ == '__main__':
 
     env = gym.make('LunarLander-v2')
     obs = env.reset()
-    task_idx = random.randint(0, 5)
+    task_idx = random.randint(0, 6)
 
     # Get the action from current actor policy
     action = actor.predict(obs, task_idx)
