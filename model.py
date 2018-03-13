@@ -4,7 +4,7 @@ import torch
 import numpy as np
 
 # Named tuple for a single step within a trajectory
-Step = namedtuple('Step', ['state', 'action', 'reward', 'task_id', 'actor', 'critic'])
+Step = namedtuple('Step', ['state', 'action', 'reward', 'task_id', 'log_prob'])
 
 # Global step counters
 ACT_STEP = 0
@@ -60,7 +60,7 @@ def act(actor, critic, env, task, B, num_trajectories=10, task_period=30, writer
             if num_steps % task_period == 0:
                 task.sample()
             # Get the action from current actor policy
-            action = actor.predict(obs, task.current_task)
+            action, log_prob = actor.predict(obs, task.current_task, log_prob=True)
             # Execute action and collect rewards for each task
             new_obs, gym_reward, done, _ = env.step(np.asscalar(action))
             # # Clip the gym reward to be between -1 and 1 (the huge -100 and 100 values cause instability)
@@ -71,7 +71,7 @@ def act(actor, critic, env, task, B, num_trajectories=10, task_period=30, writer
                 for i in range(task.num_tasks):
                     writer.add_scalar('reward_t%s' % i, reward[i], ACT_STEP)
             # group information into a step and add to current trajectory
-            new_step = Step(obs, action, reward, task.current_task, actor, critic)
+            new_step = Step(obs, action, reward, task.current_task, log_prob)
             trajectory.append(new_step)
             num_steps += 1  # increment step counter
             ACT_STEP += 1
@@ -126,23 +126,19 @@ def _critic_loss(actor, critic, task, trajectory, gamma=0.95):
     states = torch.FloatTensor(np.array([step.state for step in trajectory]))
     actions = torch.FloatTensor(np.array([step.action for step in trajectory]))
     rewards = torch.FloatTensor(np.array([step.reward for step in trajectory]))
-    task_ids = torch.FloatTensor(np.array([step.task_id for step in trajectory]))
     for task_id in range(task.num_tasks):
-        q_ret = []
-
         # Get the task-specific q value for the task-specific action at every state action pair
         task_action = actor.predict(states, task_id, to_numpy=False)
         critic_input = torch.cat((task_action.float().unsqueeze(1), states), dim=1)
         qi = critic.predict(critic_input, task_id, to_numpy=False)
-
         # Get the task-specific q value for the trajectory action at every state action pair
         critic_input = torch.cat((actions, states), dim=1)
         q = critic.forward(critic_input, task_id)
         qj = q.data
-
         # Get the task-specific logprob values for the trajectory action at every state action pair
         _, task_log_prob = actor.forward(states, task_id, log_prob=True)
-
+        # Calculation of retrace Q
+        q_ret = torch.zeros(num_steps, 1)
         for i in range(num_steps):
             q_ret_i = 0
             for j in range(i, num_steps):
@@ -151,19 +147,15 @@ def _critic_loss(actor, critic, task, trajectory, gamma=0.95):
                 # Importance weights
                 cj = 1.0
                 for k in range(i, j):
-                    _, log_prob2 = actor.forward(states[k, :], int(task_ids[k]), log_prob=True)
-                    ck = torch.min((task_log_prob[k].data / log_prob2.data), torch.Tensor([1]))
+                    ck = min((task_log_prob[k].data[0] / float(trajectory[k].log_prob)), 1.0)
                     cj *= ck
                 # Difference between the two q values
                 del_q = qi[i] - qj[j]
                 # Retrace Q value is sum of discounted weighted rewards
                 q_ret_i += discount * cj * (rewards[j, task_id] + del_q)
-
-            # Append retrace Q value to trajectory length Q_ret list
-            q_ret.append(q_ret_i)
-
-        critic_loss += (q - q_ret) ** 2
-
+            # Append retrace Q value to float tensor using index_fill
+            q_ret.index_fill_(0, torch.LongTensor([i]), q_ret_i[0])
+        critic_loss += torch.sum((q - torch.autograd.Variable(q_ret, requires_grad=False)) ** 2)
     return critic_loss
 
 

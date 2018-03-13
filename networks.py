@@ -136,10 +136,21 @@ class Actor(BaseNet):
             return action, log_prob
         return action
 
-    def predict(self, x, intention, to_numpy=True):
-        y = super().predict(x, intention, to_numpy)
-        return y
-
+    def predict(self, x, intention, to_numpy=True, log_prob=False):
+        if log_prob:
+            action, log_prob = self.forward(x, intention, log_prob=True)
+            action = action.cpu().data
+            log_prob = log_prob.cpu().data
+            if to_numpy:
+                action = action.numpy()
+                log_prob = log_prob.numpy()
+            return action, log_prob
+        else:
+            action = self.forward(x, intention).cpu().data
+            if to_numpy:
+                action = action.numpy()
+            return action
+        return None
 
 class Critic(BaseNet):
     """Class for Q-function (or critic) network"""
