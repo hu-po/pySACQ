@@ -61,11 +61,11 @@ def act(actor, env, task, B, num_trajectories=10, task_period=30, writer=None):
             # Get the action from current actor policy
             action, log_prob = actor.predict(obs, task.current_task, log_prob=True)
             # Execute action and collect rewards for each task
-            new_obs, gym_reward, done, _ = env.step(np.asscalar(action))
+            obs, gym_reward, done, _ = env.step(np.asscalar(action))
             # # Clip the gym reward to be between -1 and 1 (the huge -100 and 100 values cause instability)
             # gym_reward = np.clip(-1.0, 1.0, gym_reward / 100.0)
             # Reward is a vector of the reward for each task
-            reward = task.reward(new_obs, gym_reward)
+            reward = task.reward(obs, gym_reward)
             # TODO: This might be better if you could look at ...
             if writer:
                 reward_dict = dict((str(i), r) for i, r in enumerate(reward))
@@ -80,6 +80,34 @@ def act(actor, env, task, B, num_trajectories=10, task_period=30, writer=None):
         B.append(trajectory)
 
 
+def _prepare_trajectory(trajectory, task):
+    """
+    Prepares the list of namedtuples trajectory object into the required FloatTensors
+    and intention masks required by the loss calculations.
+    :param trajectory: (list of Steps) trajectory or episode
+    :param task: (Task) task object
+    :return:
+    """
+    # Number of steps in trajectory
+    num_steps = len(trajectory)
+
+    # Convert trajectory states into a Tensor
+    states = torch.FloatTensor(np.array([step.state for step in trajectory]))
+    actions = torch.FloatTensor(np.array([step.action for step in trajectory]))
+    rewards = torch.FloatTensor(np.array([step.reward for step in trajectory]))
+    log_prob = torch.FloatTensor(np.array([step.log_prob for step in trajectory]))
+
+    # Create an intention mask for all the types of intentions (tasks)
+    task_mask = np.arange(0, task.num_tasks)
+    np.repeat(task_mask, num_steps)
+    imask_alltasks = torch.FloatTensor(task_mask)
+
+    # Create an intention mask for the specific trajectory
+    imask_trajectory = torch.FloatTensor(np.array([step.task_id for step in trajectory]))
+
+
+
+
 def _actor_loss(actor, critic, task, trajectory):
     """
     Computes the actor loss for a given trajectory. Uses the Q value from the critic.
@@ -87,12 +115,19 @@ def _actor_loss(actor, critic, task, trajectory):
     :param actor: (Actor) actor network object
     :param critic: (Critic) critic network object
     :param task: (Task) task object
-    :param trajectory: (list of Steps) trajectory or episode
+    :param trajectory:
     :return: actor loss
     """
     actor_loss = 0
-    # Convert trajectory states into a Tensor
     states = torch.FloatTensor(np.array([step.state for step in trajectory]))
+
+    # Create an intention mask for all the types of intentions (tasks)
+    task_mask = np.arange(0, task.num_tasks)
+    task_mask = np.repeat(task_mask, len(trajectory))
+    imask_alltasks = torch.LongTensor(task_mask)
+    state_alltasks = states.repeat(task.num_tasks, 1)
+    actions, log_prob = actor.forward(state_alltasks, imask_alltasks, log_prob=True)
+
     for task_id in range(task.num_tasks):
         # Vector of actions this particular intention policy would have taken at each state in the trajectory
         # as well as the log probability of that action having been taken

@@ -102,12 +102,12 @@ class TaskScheduler(object):
         self.current_set = set()
 
     def sample(self):
-        self.current_task = random.randint(0, self.num_tasks)
+        self.current_task = random.randint(0, self.num_tasks-1)
         self.current_set.add(self.current_task)
 
     def reward(self, state, main_reward):
         reward_vector = []
-        for task_reward in self.task_rewards:
+        for task_reward in self.aux_rewards:
             reward_vector.append(task_reward(state))
         # Append main task reward
         reward_vector.append(main_reward)

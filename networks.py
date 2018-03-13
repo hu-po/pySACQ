@@ -111,6 +111,7 @@ class Actor(BaseNet):
                  batch_norm=False,
                  use_gpu=True):
         super(Actor, self).__init__(state_dim, base_hidden_size, head_input_size, non_linear, batch_norm, use_gpu)
+        self.head_output_size = head_output_size
 
         # Create the many intention nets heads
         self.intention_nets = []
@@ -124,18 +125,20 @@ class Actor(BaseNet):
         # Initialize the weights
         self.init_weights()
 
-    def forward(self, x, intention, intention_mask=False, log_prob=False):
+    def forward(self, x, intention, log_prob=False):
         x = super().forward_base(x)
-        if intention_mask and isinstance(intention, list):
-            # Feed forward through all the intention heads concatenate on new dimension
-            # TODO: Did I just move the for loop into the forward function?
-            x = torch.cat((self.intention_nets[i].forward(x) for i in intention), dim=2)
-            # The intention masks the output
-            # TODO: intention number to a one hot vector that reduces the number of dimmensions?
-            # TODO: Maybe some kind of summation is required?
-        else:
+        if isinstance(intention, int):
             # Feed forward through a single intention head
             x = self.intention_nets[intention].forward(x)
+        else:
+            # Create intention mask
+            one_hot_mask = np.zeros((x.shape[0], len(self.intention_nets)))
+            one_hot_mask[np.arange(x.shape[0]), intention.numpy()] = 1
+            mask_tensor = torch.autograd.Variable(torch.FloatTensor(one_hot_mask).unsqueeze(1), requires_grad=False)
+            # Feed forward through all the intention heads and concatenate on new dimension
+            intention_out = torch.cat(list(head.forward(x).unsqueeze(2) for head in self.intention_nets), dim=2)
+            # Multiply by the intention mask and sum in the final dimension to get the right output shape
+            x = (intention_out * mask_tensor).sum(dim=2)
         # Intention head determines parameters of Categorical distribution
         dist = torch.distributions.Categorical(x)
         action = dist.sample()
