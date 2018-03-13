@@ -17,6 +17,7 @@ from model import act, learn
 parser = argparse.ArgumentParser(description='Train Arguments')
 parser.add_argument('--log', type=str, default=None, help='Write tensorboard style logs to this folder [default: None]')
 parser.add_argument('--num_train_cycles', type=int, default=1, help='Number of training cycles [default: 1]')
+parser.add_argument('--saveas', type=str, default=None, help='savename for trained model [default: None]')
 
 # Global step counters
 TEST_STEP = 0
@@ -92,9 +93,17 @@ if __name__ == '__main__':
 
     for i in range(args.num_train_cycles):
         print('Training cycle %s of %s' % (i, args.num_train_cycles))
-        act(actor, env, task, B, num_trajectories=2, task_period=20, writer=writer)
-        learn(actor, critic, task, B, num_learning_iterations=3, episode_batch_size=10, lr=0.0002, writer=writer)
+        act(actor, env, task, B, num_trajectories=3, task_period=20, writer=writer)
+        learn(actor, critic, task, B, num_learning_iterations=1, episode_batch_size=10, lr=0.0002, writer=writer)
         run(actor, env, min_rate=0.01, writer=writer)
+
+    # Save the model to local directory
+    if args.saveas is not None:
+        save_path = str(root_dir / 'models' / args.saveas)
+        print('Saving models to %s' % save_path)
+        torch.save(actor, save_path + '_actor.pt')
+        torch.save(critic, save_path + '_critic.pt')
+        print('...done')
 
     # Close writer
     try:

@@ -4,7 +4,7 @@ import torch
 import numpy as np
 
 # Named tuple for a single step within a trajectory
-Step = namedtuple('Step', ['state', 'action', 'reward', 'task_id', 'log_prob'])
+Step = namedtuple('Step', ['state', 'action', 'log_prob', 'reward'])
 
 # Global step counters
 ACT_STEP = 0
@@ -42,8 +42,8 @@ def act(actor, env, task, B, num_trajectories=10, task_period=30, writer=None):
             action, log_prob = actor.predict(obs, task.current_task, log_prob=True)
             # Execute action and collect rewards for each task
             obs, gym_reward, done, _ = env.step(np.asscalar(action))
-            # # Clip the gym reward to be between -1 and 1 (the huge -100 and 100 values cause instability)
-            # gym_reward = np.clip(-1.0, 1.0, gym_reward / 100.0)
+            # Modify the main task reward (the huge -100 and 100 values cause instability)
+            gym_reward /= 100.0
             # Reward is a vector of the reward for each task
             reward = task.reward(obs, gym_reward)
             if writer:
@@ -51,7 +51,7 @@ def act(actor, env, task, B, num_trajectories=10, task_period=30, writer=None):
                 # TODO: The point is to create regex-able logs
                 writer.add_scalars('train/reward/%s' % ACT_STEP, reward_dict, num_steps)
             # group information into a step and add to current trajectory
-            new_step = Step(obs, action, reward, task.current_task, log_prob)
+            new_step = Step(obs, action, log_prob, reward)
             trajectory.append(new_step)
             num_steps += 1  # increment step counter
         ACT_STEP += 1
