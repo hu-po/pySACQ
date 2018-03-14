@@ -18,9 +18,19 @@ parser = argparse.ArgumentParser(description='Train Arguments')
 parser.add_argument('--log', type=str, default=None, help='Write tensorboard style logs to this folder [default: None]')
 parser.add_argument('--num_train_cycles', type=int, default=1000, help='Number of training cycles [default: 1]')
 parser.add_argument('--saveas', type=str, default=None, help='savename for trained model [default: None]')
+parser.add_argument('--buffer_size', type=int, default=200, help='Number of trajectories in replay buffer [default: 200]')
+
+
+parser.add_argument('--num_trajectories', type=int, default=5,
+                    help='Number of trajectories collected per acting cycle [default: 5]')
+parser.add_argument('--num_learning_iterations', type=int, default=1,
+                    help='Number of learning iterations per learn cycle [default: 1]')
+parser.add_argument('--episode_batch_size', type=int, default=2,
+                    help='Number of trajectories per batch (gradient push) [default: 2]')
 
 # Global step counters
 TEST_STEP = 0
+
 
 def run(actor, env, min_rate=None, writer=None, render=False):
     """
@@ -95,11 +105,16 @@ if __name__ == '__main__':
 
     for i in range(args.num_train_cycles):
         print('Training cycle %s of %s' % (i, args.num_train_cycles))
-        act(actor, env, task, B, num_trajectories=50, task_period=30, writer=writer)
-        learn(actor, critic, task, B, num_learning_iterations=5, episode_batch_size=10, lr=0.0002, writer=writer)
+        act(actor, env, task, B,
+            num_trajectories=args.num_trajectories,
+            task_period=30, writer=writer)
+        learn(actor, critic, task, B,
+              num_learning_iterations=args.num_learning_iterations,
+              episode_batch_size=args.episode_batch_size,
+              lr=0.0002, writer=writer)
         run(actor, env, min_rate=0.05, writer=writer)
         # Remove early trajectories when buffer gets too large
-        B = B[-200:]
+        B = B[-args.buffer_size:]
 
     # Save the model to local directory
     if args.saveas is not None:
