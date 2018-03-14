@@ -3,6 +3,8 @@
 # =========== #
 logs/*
 models/*
+scripts/*
+!scripts/template.sh
 
 # =========== #
 #  Notebooks  #
