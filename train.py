@@ -47,13 +47,13 @@ def run(actor, env, min_rate=None, writer=None):
         # Step the environment and push outputs to policy
         obs, reward, done, _ = env.step(action[0])
         if writer:
-            writer.add_scalar('test/reward/%s' % TEST_STEP, reward, num_steps)
+            writer.add_scalar('test/reward', reward, TEST_STEP)
         step_toc = time.clock()
         step_time = step_toc - step_tic
         if min_rate and step_time < min_rate:  # Sleep to ensure minimum rate
             time.sleep(min_rate - step_time)
         num_steps += 1
-    TEST_STEP += 1
+        TEST_STEP += 1
     # Total elapsed time in epoch
     epoch_toc = time.clock()
     epoch_time = epoch_toc - epoch_tic
@@ -93,9 +93,9 @@ if __name__ == '__main__':
 
     for i in range(args.num_train_cycles):
         print('Training cycle %s of %s' % (i, args.num_train_cycles))
-        act(actor, env, task, B, num_trajectories=10, task_period=30)#, writer=writer)
+        act(actor, env, task, B, num_trajectories=10, task_period=30, writer=writer)
         learn(actor, critic, task, B, num_learning_iterations=2, episode_batch_size=5, lr=0.0002, writer=writer)
-        run(actor, env, min_rate=0.1, writer=writer)
+        run(actor, env, min_rate=0.05, writer=writer)
 
     # Save the model to local directory
     if args.saveas is not None:

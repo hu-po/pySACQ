@@ -25,8 +25,6 @@ def act(actor, env, task, B, num_trajectories=10, task_period=30, writer=None):
     :return: None
     """
     global ACT_STEP
-    if writer:
-        rewards = [] # Store reward vectors in list for writing to log file
     for trajectory_idx in range(num_trajectories):
         print('Acting: trajectory %s of %s' % (trajectory_idx + 1, num_trajectories))
         # Reset environment and trajectory specific parameters
@@ -49,15 +47,12 @@ def act(actor, env, task, B, num_trajectories=10, task_period=30, writer=None):
             # Reward is a vector of the reward for each task
             reward = task.reward(obs, gym_reward)
             if writer:
-                rewards.append(reward)
+                for i, r in enumerate(reward):
+                    writer.add_scalar('train/reward/%s'%i, r, ACT_STEP)
             # group information into a step and add to current trajectory
             trajectory.append(Step(obs, action[0], log_prob[0], reward))
             num_steps += 1  # increment step counter
-        ACT_STEP += 1
-        if writer:
-            task_reward_list = [[item[i] for item in rewards] for i in len(rewards)]
-            reward_dict = dict((str(i), r) for i, r in enumerate(task_reward_list))
-            writer.add_scalars('train/reward/', reward_dict, ACT_STEP)
+            ACT_STEP += 1
         # Add trajectory to replay buffer
         B.append(trajectory)
 
@@ -115,8 +110,10 @@ def _calculate_losses(trajectory, task, actor, critic, gamma=0.95):
             # Append retrace Q value to float tensor using index_fill
             q_ret.index_fill_(0, torch.LongTensor([start + i]), q_ret_i[0])
     # Critic loss uses retrace Q
-    critic_loss = torch.sum((task_q - torch.autograd.Variable(q_ret, requires_grad=False)) ** 2)
-    critic_loss /= len(trajectory)  # Divide by the number of runs to prevent trajectory length from mattering
+    # critic_loss = torch.sum((task_q - torch.autograd.Variable(q_ret, requires_grad=False)) ** 2)
+    # critic_loss /= len(trajectory)  # Divide by the number of runs to prevent trajectory length from mattering
+    # Use Huber Loss for critic
+    critic_loss = torch.nn.SmoothL1Loss()(task_q, torch.autograd.Variable(q_ret, requires_grad=False))
     return actor_loss, critic_loss
 
 
