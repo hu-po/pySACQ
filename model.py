@@ -42,14 +42,14 @@ def act(actor, env, task, B, num_trajectories=10, task_period=30, writer=None):
             action, log_prob = actor.predict(obs, task.current_task, log_prob=True)
             # Execute action and collect rewards for each task
             obs, gym_reward, done, _ = env.step(np.asscalar(action))
-            # Modify the main task reward (the huge -100 and 100 values cause instability)
-            gym_reward /= 100.0
+            # # Modify the main task reward (the huge -100 and 100 values cause instability)
+            # gym_reward /= 100.0
             # Reward is a vector of the reward for each task
             reward = task.reward(obs, gym_reward)
             if writer:
                 reward_dict = dict((str(i), r) for i, r in enumerate(reward))
                 # TODO: The point is to create regex-able logs
-                writer.add_scalars('train/reward/%s' % ACT_STEP, reward_dict, num_steps)
+                writer.add_scalars('train/reward/', reward_dict, ACT_STEP)
             # group information into a step and add to current trajectory
             new_step = Step(obs, action, log_prob, reward)
             trajectory.append(new_step)
@@ -149,8 +149,8 @@ def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size
             # critic_loss = _critic_loss(actor, critic, task, trajectory)
             actor_loss, critic_loss = _calculate_losses(trajectory, task, actor, critic)
             if writer:
-                writer.add_scalar('train/loss/actor', actor_loss, LEARN_STEP)
-                writer.add_scalar('train/loss/critic', critic_loss, LEARN_STEP)
+                writer.add_scalar('train/loss/actor', actor_loss.data[0], LEARN_STEP)
+                writer.add_scalar('train/loss/critic', critic_loss.data[0], LEARN_STEP)
             # TODO: Make sure to average gradients based on number of steps (batch size) per intention
             # compute gradients
             actor_loss.backward()

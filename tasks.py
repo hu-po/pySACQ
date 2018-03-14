@@ -43,7 +43,7 @@ def hover_planar(state):
     """
     x_vel = state[2]  # vel.x * (VIEWPORT_W / SCALE / 2) / FPS
     y_vel = state[3]  # vel.y * (VIEWPORT_H / SCALE / 2) / FPS
-    reward = - (abs(x_vel) + abs(y_vel))
+    reward = 1.0 / (abs(x_vel) + abs(y_vel))
     return reward
 
 
@@ -54,7 +54,7 @@ def hover_angular(state):
     :return: (float) reward
     """
     ang_vel = state[5]  # 20.0 * self.lander.angularVelocity / FPS
-    reward = - abs(ang_vel)
+    reward = 1.0 / abs(ang_vel)
     return reward
 
 
@@ -64,8 +64,8 @@ def upright(state):
     :param state: (list) state of lunar lander
     :return: (float) reward
     """
-    ang_vel = state[4]  # self.lander.angle
-    reward = - abs(ang_vel)
+    angle = state[4]  # self.lander.angle
+    reward = 1.0 / abs(angle)
     return reward
 
 
@@ -77,7 +77,7 @@ def goal_distance(state):
     """
     x_pos = state[2]  # (pos.x - VIEWPORT_W / SCALE / 2) / (VIEWPORT_W / SCALE / 2)
     y_pos = state[3]  # (pos.y - (self.helipad_y + LEG_DOWN / SCALE)) / (VIEWPORT_W / SCALE / 2)
-    reward = - (abs(x_pos) + abs(y_pos))
+    reward = 1.0 / (abs(x_pos) + abs(y_pos))
     return reward
 
 
