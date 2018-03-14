@@ -4,7 +4,7 @@ import sys
 import time
 import gym
 import torch
-import numpy as np
+from collections import deque
 from tensorboardX import SummaryWriter
 
 # Add local files to path
@@ -16,13 +16,13 @@ from model import act, learn
 
 parser = argparse.ArgumentParser(description='Train Arguments')
 parser.add_argument('--log', type=str, default=None, help='Write tensorboard style logs to this folder [default: None]')
-parser.add_argument('--num_train_cycles', type=int, default=30, help='Number of training cycles [default: 1]')
+parser.add_argument('--num_train_cycles', type=int, default=1000, help='Number of training cycles [default: 1]')
 parser.add_argument('--saveas', type=str, default=None, help='savename for trained model [default: None]')
 
 # Global step counters
 TEST_STEP = 0
 
-def run(actor, env, min_rate=None, writer=None):
+def run(actor, env, min_rate=None, writer=None, render=False):
     """
     Runs the actor policy on the environment, rendering it. This does not store anything
     and is only used for visualization.
@@ -30,6 +30,7 @@ def run(actor, env, min_rate=None, writer=None):
     :param env: (Environment) OpenAI Gym Environment object
     :param min_rate: (float) minimum framerate
     :param writer: (SummaryWriter) writer object for logging
+    :param render: (Bool) toggle for rendering to window
     :return: None
     """
     global TEST_STEP
@@ -41,7 +42,8 @@ def run(actor, env, min_rate=None, writer=None):
     reward = 0
     while not done:
         step_tic = time.clock()
-        env.render()
+        if render:
+            env.render()
         # Use the previous observation to get an action from policy
         action = actor.predict(obs, -1)  # Last intention is main task
         # Step the environment and push outputs to policy
@@ -93,9 +95,11 @@ if __name__ == '__main__':
 
     for i in range(args.num_train_cycles):
         print('Training cycle %s of %s' % (i, args.num_train_cycles))
-        act(actor, env, task, B, num_trajectories=10, task_period=30, writer=writer)
-        learn(actor, critic, task, B, num_learning_iterations=2, episode_batch_size=5, lr=0.0002, writer=writer)
+        act(actor, env, task, B, num_trajectories=50, task_period=30, writer=writer)
+        learn(actor, critic, task, B, num_learning_iterations=5, episode_batch_size=10, lr=0.0002, writer=writer)
         run(actor, env, min_rate=0.05, writer=writer)
+        # Remove early trajectories when buffer gets too large
+        B = B[-200:]
 
     # Save the model to local directory
     if args.saveas is not None:
