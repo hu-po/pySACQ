@@ -125,10 +125,8 @@ class SQXNet(torch.nn.Module):
             x = (intention_out * mask_tensor).sum(dim=2)
         return x
 
-    def predict(self, x, intention, to_numpy=True):
+    def predict(self, x, intention):
         y = self.forward(x, intention).cpu().data
-        if to_numpy:
-            y = y.numpy()
         return y
 
 
@@ -167,19 +165,12 @@ class Actor(SQXNet):
             return action, log_prob
         return action
 
-    def predict(self, x, intention, to_numpy=True, log_prob=False):
+    def predict(self, x, intention, log_prob=False):
         if log_prob:
             action, log_prob = self.forward(x, intention, log_prob=True)
-            action = action.cpu().data
-            log_prob = log_prob.cpu().data
-            if to_numpy:
-                action = action.numpy()
-                log_prob = log_prob.numpy()
-            return action, log_prob
+            return action.cpu().data, log_prob.cpu().data
         else:
             action = self.forward(x, intention).cpu().data
-            if to_numpy:
-                action = action.numpy()
             return action
         return None
 

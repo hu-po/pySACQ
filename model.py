@@ -25,6 +25,8 @@ def act(actor, env, task, B, num_trajectories=10, task_period=30, writer=None):
     :return: None
     """
     global ACT_STEP
+    if writer:
+        rewards = [] # Store reward vectors in list for writing to log file
     for trajectory_idx in range(num_trajectories):
         print('Acting: trajectory %s of %s' % (trajectory_idx + 1, num_trajectories))
         # Reset environment and trajectory specific parameters
@@ -41,20 +43,21 @@ def act(actor, env, task, B, num_trajectories=10, task_period=30, writer=None):
             # Get the action from current actor policy
             action, log_prob = actor.predict(obs, task.current_task, log_prob=True)
             # Execute action and collect rewards for each task
-            obs, gym_reward, done, _ = env.step(np.asscalar(action))
+            obs, gym_reward, done, _ = env.step(action[0])
             # # Modify the main task reward (the huge -100 and 100 values cause instability)
             # gym_reward /= 100.0
             # Reward is a vector of the reward for each task
             reward = task.reward(obs, gym_reward)
             if writer:
-                reward_dict = dict((str(i), r) for i, r in enumerate(reward))
-                # TODO: The point is to create regex-able logs
-                writer.add_scalars('train/reward/', reward_dict, ACT_STEP)
+                rewards.append(reward)
             # group information into a step and add to current trajectory
-            new_step = Step(obs, action, log_prob, reward)
-            trajectory.append(new_step)
+            trajectory.append(Step(obs, action[0], log_prob[0], reward))
             num_steps += 1  # increment step counter
         ACT_STEP += 1
+        if writer:
+            task_reward_list = [[item[i] for item in rewards] for i in len(rewards)]
+            reward_dict = dict((str(i), r) for i, r in enumerate(task_reward_list))
+            writer.add_scalars('train/reward/', reward_dict, ACT_STEP)
         # Add trajectory to replay buffer
         B.append(trajectory)
 
@@ -71,13 +74,12 @@ def _calculate_losses(trajectory, task, actor, critic, gamma=0.95):
     """
     # Extract information out of trajectory
     num_steps = len(trajectory)
-    states = torch.FloatTensor(np.array([step.state for step in trajectory]))
-    actions = torch.FloatTensor(np.array([step.action for step in trajectory]))
-    rewards = torch.FloatTensor(np.array([step.reward for step in trajectory]))
-    log_probs = torch.FloatTensor(np.array([step.log_prob for step in trajectory]))
+    states = torch.FloatTensor([step.state for step in trajectory])
+    rewards = torch.FloatTensor([step.reward for step in trajectory])
+    actions = torch.FloatTensor([step.action for step in trajectory]).unsqueeze(1)
+    log_probs = torch.FloatTensor([step.log_prob for step in trajectory]).unsqueeze(1)
     # Create an intention (task) mask for all possible intentions
-    task_mask = np.arange(0, task.num_tasks)
-    task_mask = np.repeat(task_mask, num_steps)
+    task_mask = np.repeat(np.arange(0, task.num_tasks), num_steps)
     imask_task = torch.LongTensor(task_mask)
     states = states.repeat(task.num_tasks, 1)
     actions = actions.repeat(task.num_tasks, 1)
@@ -88,7 +90,7 @@ def _calculate_losses(trajectory, task, actor, critic, gamma=0.95):
     task_q = critic.forward(critic_input, imask_task)
     # Q-values (for each task) for every state and action pair in trajectory
     critic_input = torch.cat([actions, states], dim=1)
-    traj_q = critic.predict(critic_input, imask_task, to_numpy=False)
+    traj_q = critic.predict(critic_input, imask_task)
     # Actor loss is log-prob weighted sum of Q values (for each task) given states from trajectory
     actor_loss = - torch.sum(torch.autograd.Variable(task_q.data, requires_grad=False).squeeze(1) * task_log_prob)
     actor_loss /= len(trajectory)  # Divide by the number of runs to prevent trajectory length from mattering
@@ -104,7 +106,7 @@ def _calculate_losses(trajectory, task, actor, critic, gamma=0.95):
                 # Importance weights
                 cj = 1.0
                 for k in range(i, j):
-                    ck = min((task_log_prob.data[start + k] / float(log_probs[k])), 1.0)
+                    ck = min(abs(task_log_prob.data[start + k] / float(log_probs[k])), 1.0)
                     cj *= ck
                 # Difference between the two q values
                 del_q = task_q.data[start + i] - traj_q[start + j]
@@ -114,6 +116,7 @@ def _calculate_losses(trajectory, task, actor, critic, gamma=0.95):
             q_ret.index_fill_(0, torch.LongTensor([start + i]), q_ret_i[0])
     # Critic loss uses retrace Q
     critic_loss = torch.sum((task_q - torch.autograd.Variable(q_ret, requires_grad=False)) ** 2)
+    critic_loss /= len(trajectory)  # Divide by the number of runs to prevent trajectory length from mattering
     return actor_loss, critic_loss
 
 

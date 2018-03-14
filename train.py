@@ -45,7 +45,7 @@ def run(actor, env, min_rate=None, writer=None):
         # Use the previous observation to get an action from policy
         action = actor.predict(obs, -1)  # Last intention is main task
         # Step the environment and push outputs to policy
-        obs, reward, done, _ = env.step(np.asscalar(action))
+        obs, reward, done, _ = env.step(action[0])
         if writer:
             writer.add_scalar('test/reward/%s' % TEST_STEP, reward, num_steps)
         step_toc = time.clock()
@@ -95,7 +95,7 @@ if __name__ == '__main__':
         print('Training cycle %s of %s' % (i, args.num_train_cycles))
         act(actor, env, task, B, num_trajectories=10, task_period=30)#, writer=writer)
         learn(actor, critic, task, B, num_learning_iterations=2, episode_batch_size=5, lr=0.0002, writer=writer)
-        run(actor, env, min_rate=0.01, writer=writer)
+        run(actor, env, min_rate=0.1, writer=writer)
 
     # Save the model to local directory
     if args.saveas is not None:
