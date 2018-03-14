@@ -4,7 +4,6 @@ import sys
 import time
 import gym
 import torch
-from collections import deque
 from tensorboardX import SummaryWriter
 
 # Add local files to path
@@ -100,7 +99,7 @@ if __name__ == '__main__':
     # Write tensorboard logs to local logs folder
     writer = None
     if args.log:
-        log_dir = root_dir / 'logs' / args.log
+        log_dir = root_dir / 'local' / 'logs' / args.log
         writer = SummaryWriter(log_dir=str(log_dir))
 
     for i in range(args.num_train_cycles):
@@ -118,7 +117,7 @@ if __name__ == '__main__':
 
     # Save the model to local directory
     if args.saveas is not None:
-        save_path = str(root_dir / 'models' / args.saveas)
+        save_path = str(root_dir / 'local' / 'models' / args.saveas)
         print('Saving models to %s' % save_path)
         torch.save(actor, save_path + '_actor.pt')
         torch.save(critic, save_path + '_critic.pt')

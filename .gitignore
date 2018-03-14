@@ -1,10 +1,10 @@
 # =========== #
 # Local Files #
 # =========== #
-logs/*
-models/*
-scripts/*
-!scripts/template.sh
+local/logs/*
+local/models/*
+local/*
+!local/template.sh
 
 # =========== #
 #  Notebooks  #
