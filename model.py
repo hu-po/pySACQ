@@ -88,7 +88,7 @@ def _loss_discounted_rewards(trajectory, task, actor, critic, gamma=0.95):
     discounted_cumulative_rewards = torch.zeros_like(rewards)
     dcr = torch.zeros((1, task.num_tasks))
     for j in reversed(range(num_steps)):
-        dcr = dcr + gamma * rewards[j, :].unsqueeze(0)
+        dcr = gamma * dcr + rewards[j, :].unsqueeze(0)
         discounted_cumulative_rewards[j, :] = dcr
     discounted_cumulative_rewards = discounted_cumulative_rewards.repeat(task.num_tasks, 1)
     # Create intention mask
