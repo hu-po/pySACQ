@@ -39,7 +39,8 @@ def act(actor, env, task, B, num_trajectories=10, task_period=30, writer=None):
             if num_steps % task_period == 0:
                 task.sample()
             # Get the action from current actor policy
-            action, log_prob = actor.predict(obs, task.current_task, log_prob=True)
+            actor.eval()
+            action, log_prob = actor.predict(np.expand_dims(obs, axis=0), task.current_task, log_prob=True)
             # Execute action and collect rewards for each task
             obs, gym_reward, done, _ = env.step(action[0])
             # # Modify the main task reward (the huge -100 and 100 values cause instability)
@@ -195,6 +196,9 @@ def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size
         # Zero the gradients and set the losses to zero
         actor_opt.zero_grad()
         critic_opt.zero_grad()
+        # Put the nets in training mode
+        actor.train()
+        critic.train()
         for batch_idx in range(episode_batch_size):
             # Sample a random trajectory from the replay buffer
             trajectory = random.choice(B)

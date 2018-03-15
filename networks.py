@@ -37,8 +37,8 @@ class IntentionCritic(IntentionBase):
                  hidden_size,
                  output_size,
                  non_linear=torch.nn.ELU(),
-                 final_non_linear=torch.nn.ELU(),
                  use_gpu=True):
+        final_non_linear = non_linear
         super(IntentionCritic, self).__init__(input_size, hidden_size, output_size, non_linear, final_non_linear,
                                               use_gpu)
 

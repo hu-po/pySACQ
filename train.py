@@ -4,6 +4,7 @@ import sys
 import time
 import gym
 import torch
+import numpy as np
 from tensorboardX import SummaryWriter
 
 # Add local files to path
@@ -15,17 +16,22 @@ from model import act, learn
 
 parser = argparse.ArgumentParser(description='Train Arguments')
 parser.add_argument('--log', type=str, default=None, help='Write tensorboard style logs to this folder [default: None]')
-parser.add_argument('--num_train_cycles', type=int, default=1000, help='Number of training cycles [default: 1]')
 parser.add_argument('--saveas', type=str, default=None, help='savename for trained model [default: None]')
-parser.add_argument('--buffer_size', type=int, default=200, help='Number of trajectories in replay buffer [default: 200]')
 
-
+# Training parameters
+parser.add_argument('--num_train_cycles', type=int, default=1000, help='Number of training cycles [default: 1]')
 parser.add_argument('--num_trajectories', type=int, default=5,
                     help='Number of trajectories collected per acting cycle [default: 5]')
 parser.add_argument('--num_learning_iterations', type=int, default=1,
                     help='Number of learning iterations per learn cycle [default: 1]')
 parser.add_argument('--episode_batch_size', type=int, default=2,
                     help='Number of trajectories per batch (gradient push) [default: 2]')
+parser.add_argument('--buffer_size', type=int, default=200, help='Number of trajectories in replay buffer [default: 200]')
+
+# Model parameters
+parser.add_argument('--non_linear', type=str, default='relu', help='Non-linearity in the nets [default: ReLU]')
+parser.add_argument('--batch_norm', type=bool, default=False, help='Batch norm applied to input layers [default: False]')
+
 
 # Global step counters
 TEST_STEP = 0
@@ -54,7 +60,8 @@ def run(actor, env, min_rate=None, writer=None, render=False):
         if render:
             env.render()
         # Use the previous observation to get an action from policy
-        action = actor.predict(obs, -1)  # Last intention is main task
+        actor.eval()
+        action = actor.predict(np.expand_dims(obs, axis=0), -1)  # Last intention is main task
         # Step the environment and push outputs to policy
         obs, reward, done, _ = env.step(action[0])
         if writer:
@@ -86,9 +93,16 @@ if __name__ == '__main__':
     # Replay buffer stores collected trajectories
     B = []
 
+    # Non-linearity is an argument
+    non_linear = None
+    if args.non_linear == 'relu':
+        non_linear = torch.nn.ReLU()
+    elif args.non_linear == 'elu':
+        non_linear = torch.nn.ELU()
+
     # actor and critic policies are defined in networks.py
-    actor = Actor(use_gpu=use_gpu)
-    critic = Critic(use_gpu=use_gpu)
+    actor = Actor(use_gpu=use_gpu, non_linear=non_linear, batch_norm=args.batch_norm)
+    critic = Critic(use_gpu=use_gpu, non_linear=non_linear, batch_norm=args.batch_norm)
 
     # Environment is the lunar lander from OpenAI gym
     env = gym.make('LunarLander-v2')
