@@ -49,7 +49,7 @@ def act(actor, env, task, B, num_trajectories=10, task_period=30, writer=None):
             reward = task.reward(obs, gym_reward)
             if writer:
                 for i, r in enumerate(reward):
-                    writer.add_scalar('train/reward/%s'%i, r, ACT_STEP)
+                    writer.add_scalar('train/reward/%s' % i, r, ACT_STEP)
             # group information into a step and add to current trajectory
             trajectory.append(Step(obs, action[0], log_prob[0], reward))
             num_steps += 1  # increment step counter
@@ -58,9 +58,9 @@ def act(actor, env, task, B, num_trajectories=10, task_period=30, writer=None):
         B.append(trajectory)
 
 
-def _calculate_losses_simpler(trajectory, task, actor, critic, gamma=0.95):
+def _loss_discounted_rewards(trajectory, task, actor, critic, gamma=0.95):
     """
-    Calculates actor and critic losses for a given trajectory. Simpler version
+    Calculates actor and critic losses for a given trajectory. Uses simpler
     :param trajectory: (list of Steps) trajectory or episode
     :param task: (Task) task object
     :param actor: (Actor) actor network object
@@ -72,48 +72,38 @@ def _calculate_losses_simpler(trajectory, task, actor, critic, gamma=0.95):
     num_steps = len(trajectory)
     states = torch.FloatTensor([step.state for step in trajectory])
     rewards = torch.FloatTensor([step.reward for step in trajectory])
-    actions = torch.FloatTensor([step.action for step in trajectory]).unsqueeze(1)
-    log_probs = torch.FloatTensor([step.log_prob for step in trajectory]).unsqueeze(1)
     # Create an intention (task) mask for all possible intentions
     task_mask = np.repeat(np.arange(0, task.num_tasks), num_steps)
     imask_task = torch.LongTensor(task_mask)
     states = states.repeat(task.num_tasks, 1)
-    actions = actions.repeat(task.num_tasks, 1)
     # actions (for each task) for every state action pair in trajectory
     task_actions, task_log_prob = actor.forward(states, imask_task, log_prob=True)
     # Q-values (for each task) for every state and task-action pair in trajectory
     critic_input = torch.cat([task_actions.data.float().unsqueeze(1), states], dim=1)
     task_q = critic.forward(critic_input, imask_task)
-    task_q_t = task_q.cpu().data  # Available as tensor
-    # Q-values (for each task) for every state and action pair in trajectory
-    critic_input = torch.cat([actions, states], dim=1)
-    traj_q = critic.predict(critic_input, imask_task)
     # Actor loss is log-prob weighted sum of Q values (for each task) given states from trajectory
     actor_loss = - torch.sum(torch.autograd.Variable(task_q.data, requires_grad=False).squeeze(1) * task_log_prob)
     actor_loss /= len(trajectory)  # Divide by the number of runs to prevent trajectory length from mattering
-    # Calculation of retrace Q
-    q_ret = torch.zeros_like(task_q.data)
-    for task_id in range(task.num_tasks):
-        start = task_id * num_steps
-        for i in range(num_steps):
-            q_ret_i = 0
-            for j in range(i, num_steps):
-                # Discount factor
-                discount = gamma ** (j - i)
-                # Difference between the two q values
-                del_q = task_q_t[start + i] - traj_q[start + j]
-                # Retrace Q value is sum of discounted weighted rewards
-                q_ret_i += discount * (rewards[j, task_id] + del_q)
-            # Append retrace Q value to float tensor using index_fill
-            q_ret.index_fill_(0, torch.LongTensor([start + i]), q_ret_i[0])
-    # Critic loss uses retrace Q
-    # critic_loss = torch.sum((task_q - torch.autograd.Variable(q_ret, requires_grad=False)) ** 2)
-    # critic_loss /= len(trajectory)  # Divide by the number of runs to prevent trajectory length from mattering
+    # Calculate discounted cumulative rewards
+    discounted_cumulative_rewards = torch.zeros_like(rewards)
+    dcr = torch.zeros((1, task.num_tasks))
+    for j in reversed(range(num_steps)):
+        dcr = dcr + gamma * rewards[j, :].unsqueeze(0)
+        discounted_cumulative_rewards[j, :] = dcr
+    discounted_cumulative_rewards = discounted_cumulative_rewards.repeat(task.num_tasks, 1)
+    # Create intention mask
+    one_hot_mask = np.zeros((states.shape[0], task.num_tasks))
+    one_hot_mask[np.arange(states.shape[0]), imask_task.numpy()] = 1
+    mask_tensor = torch.FloatTensor(one_hot_mask)
+    # Multiply by the intention mask and sum in the final dimension to get the right output shape
+    discounted_cumulative_rewards = torch.autograd.Variable((discounted_cumulative_rewards * mask_tensor).sum(dim=1),
+                                                            requires_grad=False)
     # Use Huber Loss for critic
-    critic_loss = torch.nn.SmoothL1Loss()(task_q, torch.autograd.Variable(q_ret, requires_grad=False))
+    critic_loss = torch.nn.SmoothL1Loss()(task_q, discounted_cumulative_rewards)
     return actor_loss, critic_loss
 
-def _calculate_losses(trajectory, task, actor, critic, gamma=0.95):
+
+def _loss_retrace(trajectory, task, actor, critic, gamma=0.95):
     """
     Calculates actor and critic losses for a given trajectory. Following equations in [1]
     :param trajectory: (list of Steps) trajectory or episode
@@ -173,7 +163,7 @@ def _calculate_losses(trajectory, task, actor, critic, gamma=0.95):
     return actor_loss, critic_loss
 
 
-def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size=10, lr=0.0002, writer=None):
+def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size=10, lr=0.0002, loss='retrace', writer=None):
     """
     Pushes back gradients from the replay buffer, updating the actor and critic.
     This follows Algorithm 2 in [1]
@@ -203,9 +193,13 @@ def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size
             # Sample a random trajectory from the replay buffer
             trajectory = random.choice(B)
             # Compute losses for critic and actor
-            # actor_loss = _actor_loss(actor, critic, task, trajectory)
-            # critic_loss = _critic_loss(actor, critic, task, trajectory)
-            actor_loss, critic_loss = _calculate_losses_simpler(trajectory, task, actor, critic)
+            if loss == 'discounted_rewards':
+                actor_loss, critic_loss = _loss_discounted_rewards(trajectory, task, actor, critic)
+            elif loss == 'retrace':
+                actor_loss, critic_loss = _loss_retrace(trajectory, task, actor, critic)
+            else:
+                print('Loss not found')
+                return
             if writer:
                 writer.add_scalar('train/loss/actor', actor_loss.data[0], LEARN_STEP)
                 writer.add_scalar('train/loss/critic', critic_loss.data[0], LEARN_STEP)
