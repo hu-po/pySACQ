@@ -11,8 +11,11 @@ DATE=$(date +%Y-%m-%d)
 # Run several different training runs, storing in different log locations
 NAME="experiment_name"
 python train.py --log=$DATE$NAME \
---num_train_cycles=1\
---buffer_size=1\
---num_trajectories=1\
---num_learning_iterations=1\
---episode_batch_size=1
+--num_train_cycles=1 \
+--buffer_size=1 \
+--num_trajectories=1 \
+--num_learning_iterations=1 \
+--episode_batch_size=1 \
+--batch_norm \
+--loss=discounted_rewards \
+--non_linear=relu

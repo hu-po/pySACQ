@@ -26,13 +26,14 @@ parser.add_argument('--num_learning_iterations', type=int, default=1,
                     help='Number of learning iterations per learn cycle [default: 1]')
 parser.add_argument('--episode_batch_size', type=int, default=2,
                     help='Number of trajectories per batch (gradient push) [default: 2]')
-parser.add_argument('--buffer_size', type=int, default=200, help='Number of trajectories in replay buffer [default: 200]')
+parser.add_argument('--buffer_size', type=int, default=200,
+                    help='Number of trajectories in replay buffer [default: 200]')
 
 # Model parameters
 parser.add_argument('--non_linear', type=str, default='relu', help='Non-linearity in the nets [default: ReLU]')
-parser.add_argument('--batch_norm', type=bool, default=False, help='Batch norm applied to input layers [default: False]')
+parser.add_argument('--batch_norm', dest='batch_norm', default=False, action='store_true',
+                    help='Batch norm applied to input layers [default: False]')
 parser.add_argument('--loss', type=str, default='retrace', help='Type of loss used when training [default: retrace]')
-
 
 # Global step counters
 TEST_STEP = 0
