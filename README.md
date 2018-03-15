@@ -27,8 +27,7 @@ This switching can either be done randomly (SAC-U) or it can be learned (SAC-Q).
 The pictures below show the network architechtures for the actor and critic functions. Note the _N_
 possible heads for _N_ possible tasks (intentions in the paper) [1].
 
-![alt text](docs/critic_net.png)
-![alt text](docs/policy_net.png)
+![alt text](docs/critic_net.png) ![alt text](docs/policy_net.png)
 
 *Learning*
 
@@ -41,15 +40,10 @@ The actor policy gradient is computed using the reparameterization trick (code i
 Learning the critic (Q function) is similarly done off-policy. We sample trajectories from a buffer
 collected with target actors (actor policies frozen at a particular learning iteration). The critic
 policy gradient is computed using the retrace method (code in `model.py`)
-
-   
-## Results
-
-TBA
  
 ## Instructions
 
-- Use `train.py` to train an agent.
+- Use the `local/template.sh` script to train lots of model variations. Or use `train.py` to train an agent directly.
  
 ## Requirements
 
