@@ -14,9 +14,11 @@ from networks import Actor, Critic
 from tasks import TaskScheduler
 from model import act, learn
 
+# Log and model saving parameters
 parser = argparse.ArgumentParser(description='Train Arguments')
 parser.add_argument('--log', type=str, default=None, help='Write tensorboard style logs to this folder [default: None]')
-parser.add_argument('--saveas', type=str, default=None, help='savename for trained model [default: None]')
+parser.add_argument('--saveas', type=str, default=None, help='savename for model (Training) [default: None]')
+parser.add_argument('--model', type=str, default=None, help='savename for model (Evaluating) [default: None]')
 
 # Training parameters
 parser.add_argument('--num_train_cycles', type=int, default=1000, help='Number of training cycles [default: 1]')
@@ -102,9 +104,16 @@ if __name__ == '__main__':
     elif args.non_linear == 'elu':
         non_linear = torch.nn.ELU()
 
-    # actor and critic policies are defined in networks.py
-    actor = Actor(use_gpu=use_gpu, non_linear=non_linear, batch_norm=args.batch_norm)
-    critic = Critic(use_gpu=use_gpu, non_linear=non_linear, batch_norm=args.batch_norm)
+    if args.model:
+        model_path = str(root_dir / 'local' / 'models' / args.model)
+        print('Loading models from %s' % model_path)
+        actor = torch.load(model_path + '_actor.pt')
+        critic = torch.load(model_path + '_critic.pt')
+        print('...done')
+    else:
+        # New actor and critic policies
+        actor = Actor(use_gpu=use_gpu, non_linear=non_linear, batch_norm=args.batch_norm)
+        critic = Critic(use_gpu=use_gpu, non_linear=non_linear, batch_norm=args.batch_norm)
 
     # Environment is the lunar lander from OpenAI gym
     env = gym.make('LunarLander-v2')
