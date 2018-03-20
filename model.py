@@ -58,6 +58,46 @@ def act(actor, env, task, B, num_trajectories=10, task_period=30, writer=None):
         B.append(trajectory)
 
 
+def _loss_policy_gradient(trajectory, task, actor, gamma=0.95):
+    """
+    Calculates actor and critic losses for a given trajectory. Uses simpler
+    :param trajectory: (list of Steps) trajectory or episode
+    :param task: (Task) task object
+    :param actor: (Actor) actor network object
+    :param gamma: (float) discount factor
+    :return: (float, float) actor and critic loss
+    """
+    # Extract information out of trajectory
+    num_steps = len(trajectory)
+    states = torch.FloatTensor([step.state for step in trajectory])
+    rewards = torch.FloatTensor([step.reward for step in trajectory])
+    # Create an intention (task) mask for all possible intentions
+    task_mask = np.repeat(np.arange(0, task.num_tasks), num_steps)
+    imask_task = torch.LongTensor(task_mask)
+    states = states.repeat(task.num_tasks, 1)
+    # actions (for each task) for every state action pair in trajectory
+    task_actions, task_log_prob = actor.forward(states, imask_task, log_prob=True)
+    # Calculate discounted cumulative rewards
+    discounted_cumulative_rewards = torch.zeros_like(rewards)
+    dcr = torch.zeros((1, task.num_tasks))
+    for j in reversed(range(num_steps)):
+        dcr = gamma * dcr + rewards[j, :].unsqueeze(0)
+        discounted_cumulative_rewards[j, :] = dcr
+    discounted_cumulative_rewards = discounted_cumulative_rewards.repeat(task.num_tasks, 1)
+    # Create intention mask
+    one_hot_mask = np.zeros((states.shape[0], task.num_tasks))
+    one_hot_mask[np.arange(states.shape[0]), imask_task.numpy()] = 1
+    mask_tensor = torch.FloatTensor(one_hot_mask)
+    # Multiply by the intention mask and sum in the final dimension to get the right output shape
+    discounted_cumulative_rewards = torch.autograd.Variable((discounted_cumulative_rewards * mask_tensor).sum(dim=1),
+                                                            requires_grad=False)
+
+    # Actor loss is log-prob weighted sum of Q values (for each task) given states from trajectory
+    actor_loss = - torch.sum(discounted_cumulative_rewards * task_log_prob)
+    actor_loss /= len(trajectory)  # Divide by the number of runs to prevent trajectory length from mattering
+    return actor_loss
+
+
 def _loss_discounted_rewards(trajectory, task, actor, critic, gamma=0.95):
     """
     Calculates actor and critic losses for a given trajectory. Uses simpler
@@ -163,7 +203,8 @@ def _loss_retrace(trajectory, task, actor, critic, gamma=0.95):
     return actor_loss, critic_loss
 
 
-def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size=10, lr=0.0002, loss='retrace', writer=None):
+def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size=10, lr=0.0002, loss='retrace',
+          writer=None):
     """
     Pushes back gradients from the replay buffer, updating the actor and critic.
     This follows Algorithm 2 in [1]
@@ -182,13 +223,12 @@ def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size
         print('Learning: trajectory %s of %s' % (learn_idx + 1, num_learning_iterations))
         # optimizers for critic and actor
         actor_opt = torch.optim.Adam(actor.parameters(), lr)
-        critic_opt = torch.optim.Adam(critic.parameters(), lr)
-        # Zero the gradients and set the losses to zero
         actor_opt.zero_grad()
-        critic_opt.zero_grad()
-        # Put the nets in training mode
         actor.train()
-        critic.train()
+        if loss not in ['policy_gradient']:
+            critic_opt = torch.optim.Adam(critic.parameters(), lr)
+            critic_opt.zero_grad()
+            critic.train()
         for batch_idx in range(episode_batch_size):
             # Sample a random trajectory from the replay buffer
             trajectory = random.choice(B)
@@ -197,16 +237,21 @@ def learn(actor, critic, task, B, num_learning_iterations=10, episode_batch_size
                 actor_loss, critic_loss = _loss_discounted_rewards(trajectory, task, actor, critic)
             elif loss == 'retrace':
                 actor_loss, critic_loss = _loss_retrace(trajectory, task, actor, critic)
+            elif loss == 'policy_gradient':
+                actor_loss = _loss_policy_gradient(trajectory, task, actor)
             else:
                 print('Loss not found')
                 return
             if writer:
                 writer.add_scalar('train/loss/actor', actor_loss.data[0], LEARN_STEP)
-                writer.add_scalar('train/loss/critic', critic_loss.data[0], LEARN_STEP)
+                if loss not in ['policy_gradient']:
+                    writer.add_scalar('train/loss/critic', critic_loss.data[0], LEARN_STEP)
             # compute gradients
             actor_loss.backward()
-            critic_loss.backward()
+            if loss not in ['policy_gradient']:
+                critic_loss.backward()
             LEARN_STEP += 1
         # Push back the accumulated gradients and update the networks
         actor_opt.step()
-        critic_opt.step()
+        if loss not in ['policy_gradient']:
+            critic_opt.step()
