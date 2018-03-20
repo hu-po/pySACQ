@@ -97,24 +97,6 @@ if __name__ == '__main__':
     # Replay buffer stores collected trajectories
     B = []
 
-    # Non-linearity is an argument
-    non_linear = None
-    if args.non_linear == 'relu':
-        non_linear = torch.nn.ReLU()
-    elif args.non_linear == 'elu':
-        non_linear = torch.nn.ELU()
-
-    if args.model:
-        model_path = str(root_dir / 'local' / 'models' / args.model)
-        print('Loading models from %s' % model_path)
-        actor = torch.load(model_path + '_actor.pt')
-        critic = torch.load(model_path + '_critic.pt')
-        print('...done')
-    else:
-        # New actor and critic policies
-        actor = Actor(use_gpu=use_gpu, non_linear=non_linear, batch_norm=args.batch_norm)
-        critic = Critic(use_gpu=use_gpu, non_linear=non_linear, batch_norm=args.batch_norm)
-
     # Environment is the lunar lander from OpenAI gym
     env = gym.make('LunarLander-v2')
 
@@ -127,26 +109,47 @@ if __name__ == '__main__':
         log_dir = root_dir / 'local' / 'logs' / args.log
         writer = SummaryWriter(log_dir=str(log_dir))
 
-    for i in range(args.num_train_cycles):
-        print('Training cycle %s of %s' % (i, args.num_train_cycles))
-        act(actor, env, task, B,
-            num_trajectories=args.num_trajectories,
-            task_period=30, writer=writer)
-        learn(actor, critic, task, B,
-              num_learning_iterations=args.num_learning_iterations,
-              episode_batch_size=args.episode_batch_size,
-              lr=0.0002, writer=writer, loss=args.loss)
-        run(actor, env, min_rate=0.05, writer=writer)
-        # Remove early trajectories when buffer gets too large
-        B = B[-args.buffer_size:]
-
-    # Save the model to local directory
-    if args.saveas is not None:
-        save_path = str(root_dir / 'local' / 'models' / args.saveas)
-        print('Saving models to %s' % save_path)
-        torch.save(actor, save_path + '_actor.pt')
-        torch.save(critic, save_path + '_critic.pt')
+    if args.model:  # TEST MODE
+        model_path = str(root_dir / 'local' / 'models' / args.model)
+        print('Loading models from %s' % model_path)
+        actor = torch.load(model_path + '_actor.pt')
+        critic = torch.load(model_path + '_critic.pt')
         print('...done')
+
+        run(actor, env, min_rate=0.05, writer=writer, render=True)
+
+    else:  # TRAIN MODE
+        # Non-linearity is an argument
+        non_linear = None
+        if args.non_linear == 'relu':
+            non_linear = torch.nn.ReLU()
+        elif args.non_linear == 'elu':
+            non_linear = torch.nn.ELU()
+
+        # New actor and critic policies
+        actor = Actor(use_gpu=use_gpu, non_linear=non_linear, batch_norm=args.batch_norm)
+        critic = Critic(use_gpu=use_gpu, non_linear=non_linear, batch_norm=args.batch_norm)
+
+        for i in range(args.num_train_cycles):
+            print('Training cycle %s of %s' % (i, args.num_train_cycles))
+            act(actor, env, task, B,
+                num_trajectories=args.num_trajectories,
+                task_period=30, writer=writer)
+            learn(actor, critic, task, B,
+                  num_learning_iterations=args.num_learning_iterations,
+                  episode_batch_size=args.episode_batch_size,
+                  lr=0.0002, writer=writer, loss=args.loss)
+            run(actor, env, min_rate=0.05, writer=writer)
+            # Remove early trajectories when buffer gets too large
+            B = B[-args.buffer_size:]
+
+        # Save the model to local directory
+        if args.saveas is not None:
+            save_path = str(root_dir / 'local' / 'models' / args.saveas)
+            print('Saving models to %s' % save_path)
+            torch.save(actor, save_path + '_actor.pt')
+            torch.save(critic, save_path + '_critic.pt')
+            print('...done')
 
     # Close writer
     try:
