@@ -1,3 +1,5 @@
+** NO LONGER MAINTAINED, USE AT YOUR OWN RISK **
+
 # PySACX
 
 This repo contains a Pytorch implementation of the SAC-X RL Algorithm [1]. It uses the Lunar Lander v2
